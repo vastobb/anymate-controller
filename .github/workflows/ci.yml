@@ -1,4 +1,4 @@
-name: Test anymate-controller
+name: Build AnyMate Controller
 
 on:
   push:
@@ -10,51 +10,59 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: controller-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  test:
-    name: Smoke + unit tests
+  android:
+    name: Compile APK
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-java@v4
         with:
-          python-version: "3.11"
+          distribution: temurin
+          java-version: "17"
 
-      - name: Install package
+      - name: Set up Android SDK
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e ".[dev]"
+          SDKMANAGER="$(ls -d "$ANDROID_HOME"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | head -n 1)"
+          if [ -z "$SDKMANAGER" ]; then echo "sdkmanager not found"; exit 1; fi
+          yes | "$SDKMANAGER" --licenses > /dev/null || true
+          "$SDKMANAGER" "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
-      - name: Dependency-free smoke test
-        run: python tests/smoke.py
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
 
       - name: Unit tests
-        run: python -m pytest -q
+        run: ./gradlew --no-daemon :app:testDebugUnitTest
 
-      - name: CLI check
+      - name: Build APKs
+        run: ./gradlew --no-daemon :app:assembleDebug :app:assembleRelease
+
+      - name: Stage APKs
         run: |
-          anymate-controller --version
-          anymate-controller tools | head -20
-          anymate-controller doctor || true
+          mkdir -p dist/debug dist/release
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            NAME="AnyMateController-${{ github.ref_name }}.apk"
+          else
+            NAME="AnyMateController-${{ github.sha }}.apk"
+          fi
+          cp app/build/outputs/apk/debug/app-debug.apk dist/debug/AnyMateController-debug.apk
+          cp app/build/outputs/apk/release/app-release.apk "dist/release/$NAME"
+          ls -lh dist/debug dist/release
 
-  package:
-    name: Build wheel + sdist
-    runs-on: ubuntu-latest
-    needs: test
-    if: startsWith(github.ref, 'refs/tags/v')
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - run: |
-          python -m pip install --upgrade pip build
-          python -m build
       - uses: actions/upload-artifact@v4
         with:
-          name: python-dist
-          path: dist/
+          name: AnyMateController-apk
+          path: dist/release/AnyMateController-*.apk
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Publish GitHub release
         if: startsWith(github.ref, 'refs/tags/v')
@@ -62,16 +70,33 @@ jobs:
         with:
           name: AnyMate Controller ${{ github.ref_name }}
           body: |
-            **AnyMate Controller** — the brain box for the AnyMate Android studio.
+            **AnyMate Controller** — the brain box for the AnyMate Android studio, as an Android app.
 
-            • AI agent for any OpenAI-compatible endpoint (with visual feedback from canvas snapshots)
-            • ffmpeg: probe, convert, extract frames, build GIFs, join clips
-            • Python and a terminal sandboxed to a workspace folder
-            • Animation design tools: palettes, easing curves, timing plans, storyboards, sprite sheets,
-              PNG generation — with a built-in PNG codec, zero dependencies
-            • Live motion presets that paint complete animations onto the phone, frame by frame
-            • Exposes the whole toolbox over MCP (stdio or HTTP)
+            • **AI director** for any OpenAI-compatible endpoint, with tool calling
+            • **Phone tools** — draw, animate, play and export on the AnyMate app over MCP
+            • **Python** runtime on device (a compact Python 3 subset)
+            • **Terminal** with pipes, redirection and file commands, sandboxed to a workspace
+            • **Video** — animated GIF and H.264 MP4 encoding, probing and frame extraction
+            • **Animation design** — palettes, easing curves, timing plans, storyboards, sprite sheets
+            • Live preview of the phone's canvas
 
-            Install: `pip install anymate-controller` or clone and `pip install -e .`
-          files: dist/*
+            Install: download the APK and sideload it.
+          files: dist/release/AnyMateController-*.apk
           generate_release_notes: true
+
+  desktop:
+    name: Desktop runner tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install the desktop runner
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e "desktop[dev]"
+      - name: Smoke test
+        run: python desktop/tests/smoke.py
+      - name: Unit tests
+        run: cd desktop && python -m pytest -q
