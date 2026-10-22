@@ -18,6 +18,7 @@ import com.anymate.controller.tools.AnyMateTools
 import com.anymate.controller.tools.FileTools
 import com.anymate.controller.tools.PythonLite
 import com.anymate.controller.tools.ShellLite
+import com.anymate.controller.tools.ShellResult
 import com.anymate.controller.tools.ToolRegistry
 import com.anymate.controller.tools.ToolResult
 import com.anymate.controller.tools.VideoTools
@@ -271,7 +272,7 @@ class ControllerViewModel(app: Application) : AndroidViewModel(app) {
             ToolRegistry.obj("code" to ToolRegistry.str("Python source")),
             "python"
         ) { args ->
-            val code = args["code"]?.toString()?.trim('"') ?: ""
+            val code = args["code"].textOr("")
             val result = PythonLite.run(workspace, code)
             ToolResult(text = result.stdout, ok = result.exitCode == 0)
         }
@@ -283,7 +284,7 @@ class ControllerViewModel(app: Application) : AndroidViewModel(app) {
             ToolRegistry.obj("command" to ToolRegistry.str("Command line")),
             "terminal"
         ) { args ->
-            val command = args["command"]?.toString()?.trim('"') ?: ""
+            val command = args["command"].textOr("")
             val result = ShellLite.run(workspace, command)
             ToolResult(
                 text = (result.stdout + result.stderr).trimEnd().ifBlank { "(no output)" },
@@ -302,9 +303,9 @@ class ControllerViewModel(app: Application) : AndroidViewModel(app) {
             "animation"
         ) { args ->
             val colors = AnimTools.palette(
-                args["base"]?.toString()?.trim('"') ?: "#7C3AED",
-                args["scheme"]?.toString()?.trim('"') ?: "split",
-                args["count"]?.toIntOrNull() ?: 6
+                args["base"].textOr("#7C3AED"),
+                args["scheme"].textOr("split"),
+                args["count"].intOr(6)
             )
             ToolResult(text = colors.joinToString("\n"))
         }
@@ -318,8 +319,8 @@ class ControllerViewModel(app: Application) : AndroidViewModel(app) {
             ),
             "animation"
         ) { args ->
-            val name = args["name"]?.toString()?.trim('"') ?: "ease-in-out"
-            val values = AnimTools.easing(name, args["count"]?.toIntOrNull() ?: 12)
+            val name = args["name"].textOr("ease-in-out")
+            val values = AnimTools.easing(name, args["count"].intOr(12))
                 ?: return@register ToolResult(text = "Unknown easing '$name'.", ok = false)
             ToolResult(text = values.joinToString(", "))
         }
@@ -336,10 +337,10 @@ class ControllerViewModel(app: Application) : AndroidViewModel(app) {
             "animation"
         ) { args ->
             val plan = AnimTools.timing(
-                args["fps"]?.toIntOrNull() ?: 24,
-                args["seconds"]?.toDoubleOrNull() ?: 2.0,
-                args["style"]?.toString()?.trim('"') ?: "on-twos",
-                args["hold"]?.toIntOrNull() ?: 2
+                args["fps"].intOr(24),
+                args["seconds"].doubleOr(2.0),
+                args["style"].textOr("on-twos"),
+                args["hold"].intOr(2)
             )
             ToolResult(text = plan.toString())
         }
@@ -353,9 +354,9 @@ class ControllerViewModel(app: Application) : AndroidViewModel(app) {
             ),
             "animation"
         ) { args ->
-            val beats = args["beats"]?.toString()?.trim('"')?.lines()?.map { it.trim() }?.filter { it.isNotEmpty() }
+            val beats = args["beats"].textOr()?.lines()?.map { it.trim() }?.filter { it.isNotEmpty() }
                 ?: emptyList()
-            val plan = AnimTools.storyboard(beats, args["fps"]?.toIntOrNull() ?: 12)
+            val plan = AnimTools.storyboard(beats, args["fps"].intOr(12))
             ToolResult(text = plan.toString())
         }
 
@@ -370,12 +371,12 @@ class ControllerViewModel(app: Application) : AndroidViewModel(app) {
             "animation"
         ) { args ->
             val paths = (args["frame_paths"] as? kotlinx.serialization.json.JsonArray)
-                ?.mapNotNull { it.toString().trim('"') } ?: emptyList()
+                ?.mapNotNull { it.textOr() } ?: emptyList()
             AnimTools.spriteSheet(
                 workspace,
                 paths,
-                args["output"]?.toString()?.trim('"') ?: "sheet.png",
-                args["columns"]?.toIntOrNull() ?: 6
+                args["output"].textOr("sheet.png"),
+                args["columns"].intOr(6)
             )
         }
 
@@ -394,12 +395,12 @@ class ControllerViewModel(app: Application) : AndroidViewModel(app) {
         ) { args ->
             AnimTools.generatePng(
                 workspace,
-                args["output"]?.toString()?.trim('"') ?: "frame.png",
-                args["width"]?.toIntOrNull() ?: 900,
-                args["height"]?.toIntOrNull() ?: 900,
-                args["background"]?.toString()?.trim('"') ?: "#F4F5F7",
-                args["accent"]?.toString()?.trim('"') ?: "#7C3AED",
-                args["shape"]?.toString()?.trim('"') ?: "flat"
+                args["output"].textOr("frame.png"),
+                args["width"].intOr(900),
+                args["height"].intOr(900),
+                args["background"].textOr("#F4F5F7"),
+                args["accent"].textOr("#7C3AED"),
+                args["shape"].textOr("flat")
             )
         }
 
@@ -415,13 +416,13 @@ class ControllerViewModel(app: Application) : AndroidViewModel(app) {
             "video"
         ) { args ->
             val paths = (args["frame_paths"] as? kotlinx.serialization.json.JsonArray)
-                ?.mapNotNull { it.toString().trim('"') } ?: emptyList()
+                ?.mapNotNull { it.textOr() } ?: emptyList()
             VideoTools.gif(
                 workspace,
                 paths,
-                args["output"]?.toString()?.trim('"') ?: "animation.gif",
-                args["fps"]?.toIntOrNull() ?: 12,
-                args["width"]?.toIntOrNull() ?: 640
+                args["output"].textOr("animation.gif"),
+                args["fps"].intOr(12),
+                args["width"].intOr(640)
             )
         }
 
@@ -437,13 +438,13 @@ class ControllerViewModel(app: Application) : AndroidViewModel(app) {
             "video"
         ) { args ->
             val paths = (args["frame_paths"] as? kotlinx.serialization.json.JsonArray)
-                ?.mapNotNull { it.toString().trim('"') } ?: emptyList()
+                ?.mapNotNull { it.textOr() } ?: emptyList()
             VideoTools.mp4(
                 workspace,
                 paths,
-                args["output"]?.toString()?.trim('"') ?: "animation.mp4",
-                args["fps"]?.toIntOrNull() ?: 30,
-                args["bitrate"]?.toIntOrNull() ?: 4_000_000
+                args["output"].textOr("animation.mp4"),
+                args["fps"].intOr(30),
+                args["bitrate"].intOr(4_000_000)
             )
         }
 
@@ -453,7 +454,7 @@ class ControllerViewModel(app: Application) : AndroidViewModel(app) {
             ToolRegistry.obj("path" to ToolRegistry.str("Video path")),
             "video"
         ) { args ->
-            VideoTools.probe(args["path"]?.toString()?.trim('"') ?: "")
+            VideoTools.probe(args["path"].textOr(""))
         }
 
         registry.register(
@@ -468,10 +469,10 @@ class ControllerViewModel(app: Application) : AndroidViewModel(app) {
             "video"
         ) { args ->
             VideoTools.extractFrames(
-                args["path"]?.toString()?.trim('"') ?: "",
-                args["output_dir"]?.toString()?.trim('"') ?: "frames",
-                args["fps"]?.toIntOrNull() ?: 12,
-                args["count"]?.toIntOrNull() ?: 60
+                args["path"].textOr(""),
+                args["output_dir"].textOr("frames"),
+                args["fps"].intOr(12),
+                args["count"].intOr(60)
             )
         }
 

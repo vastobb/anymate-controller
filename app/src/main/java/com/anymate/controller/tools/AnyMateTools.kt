@@ -85,14 +85,14 @@ object AnyMateTools {
                             put(
                                 "args",
                                 buildJsonObject {
-                                    put("shape", obj["shape"]?.toString()?.trim('"') ?: "ellipse")
-                                    put("x1", obj["x1"]?.toDoubleOrNull() ?: 0.0)
-                                    put("y1", obj["y1"]?.toDoubleOrNull() ?: 0.0)
-                                    put("x2", obj["x2"]?.toDoubleOrNull() ?: 0.0)
-                                    put("y2", obj["y2"]?.toDoubleOrNull() ?: 0.0)
-                                    put("width", obj["width"]?.toDoubleOrNull() ?: 4.0)
-                                    obj["fill"]?.let { put("fill_color", it.toString().trim('"')) }
-                                    obj["stroke"]?.let { put("stroke_color", it.toString().trim('"')) }
+                                    put("shape", obj["shape"].textOr("ellipse"))
+                                    put("x1", obj["x1"].doubleOr(0.0))
+                                    put("y1", obj["y1"].doubleOr(0.0))
+                                    put("x2", obj["x2"].doubleOr(0.0))
+                                    put("y2", obj["y2"].doubleOr(0.0))
+                                    put("width", obj["width"].doubleOr(4.0))
+                                    obj["fill"]?.let { put("fill_color", it.textOr()) }
+                                    obj["stroke"]?.let { put("stroke_color", it.textOr()) }
                                     putFrameLayer(this, args)
                                 }
                             )
@@ -107,9 +107,9 @@ object AnyMateTools {
                                 "args",
                                 buildJsonObject {
                                     put("points", obj["points"] ?: JsonArray(emptyList()))
-                                    put("color", obj["color"]?.toString()?.trim('"') ?: "#7C3AED")
-                                    put("width", obj["width"]?.toDoubleOrNull() ?: 4.0)
-                                    put("tool", obj["tool"]?.toString()?.trim('"') ?: "pen")
+                                    put("color", obj["color"].textOr("#7C3AED"))
+                                    put("width", obj["width"].doubleOr(4.0))
+                                    put("tool", obj["tool"].textOr("pen"))
                                     putFrameLayer(this, args)
                                 }
                             )
@@ -123,11 +123,11 @@ object AnyMateTools {
                             put(
                                 "args",
                                 buildJsonObject {
-                                    put("text", obj["text"]?.toString()?.trim('"') ?: "")
-                                    put("x", obj["x"]?.toDoubleOrNull() ?: 0.0)
-                                    put("y", obj["y"]?.toDoubleOrNull() ?: 0.0)
-                                    put("size", obj["size"]?.toDoubleOrNull() ?: 64.0)
-                                    put("color", obj["color"]?.toString()?.trim('"') ?: "#111827")
+                                    put("text", obj["text"].textOr(""))
+                                    put("x", obj["x"].doubleOr(0.0))
+                                    put("y", obj["y"].doubleOr(0.0))
+                                    put("size", obj["size"].doubleOr(64.0))
+                                    put("color", obj["color"].textOr("#111827"))
                                     putFrameLayer(this, args)
                                 }
                             )
@@ -153,18 +153,18 @@ object AnyMateTools {
             ),
             "phone"
         ) { args ->
-            val action = args["action"]?.toString()?.trim('"')?.lowercase() ?: "add"
-            val index = args["index"]?.toIntOrNull() ?: -1
+            val action = args["action"].textOr()?.lowercase() ?: "add"
+            val index = args["index"].intOr(-1)
             when (action) {
                 "add" -> {
-                    val count = (args["count"]?.toIntOrNull() ?: 1).coerceIn(1, 200)
+                    val count = (args["count"].intOr(1)).coerceIn(1, 200)
                     var last: ToolResult? = null
                     repeat(count) {
                         last = call(
                             "anymate_add_frame",
                             buildJsonObject {
                                 if (index >= 0) put("index", index)
-                                put("copy", args["copy"]?.toBoolean() ?: false)
+                                put("copy", args["copy"].boolOr(false))
                             }
                         )
                     }
@@ -176,7 +176,7 @@ object AnyMateTools {
                     "anymate_reorder_frame",
                     buildJsonObject {
                         put("from", index.coerceAtLeast(0))
-                        put("to", args["count"]?.toIntOrNull() ?: index)
+                        put("to", args["count"].intOr(index))
                     }
                 )
                 "clear" -> call("anymate_clear_frame", buildJsonObject { if (index >= 0) put("index", index) })
@@ -196,14 +196,14 @@ object AnyMateTools {
             ),
             "phone"
         ) { args ->
-            val action = args["action"]?.toString()?.trim('"')?.lowercase() ?: "play"
+            val action = args["action"].textOr()?.lowercase() ?: "play"
             when (action) {
                 "play" -> call("anymate_play")
                 "pause" -> call("anymate_pause")
-                "seek" -> call("anymate_seek", buildJsonObject { put("index", args["index"]?.toIntOrNull() ?: 0) })
-                "fps" -> call("anymate_set_fps", buildJsonObject { put("fps", args["fps"]?.toIntOrNull() ?: 24) })
-                "loop" -> call("anymate_set_loop", buildJsonObject { put("enabled", args["enabled"]?.toBoolean() ?: true) })
-                "onion" -> call("anymate_set_onion_skin", buildJsonObject { put("enabled", args["enabled"]?.toBoolean() ?: true) })
+                "seek" -> call("anymate_seek", buildJsonObject { put("index", args["index"].intOr(0)) })
+                "fps" -> call("anymate_set_fps", buildJsonObject { put("fps", args["fps"].intOr(24)) })
+                "loop" -> call("anymate_set_loop", buildJsonObject { put("enabled", args["enabled"].boolOr(true)) })
+                "onion" -> call("anymate_set_onion_skin", buildJsonObject { put("enabled", args["enabled"].boolOr(true)) })
                 else -> ToolResult(text = "Unknown action '$action'.", ok = false)
             }
         }
@@ -220,20 +220,20 @@ object AnyMateTools {
             ),
             "phone"
         ) { args ->
-            val action = args["action"]?.toString()?.trim('"')?.lowercase() ?: "list"
-            val index = args["index"]?.toIntOrNull() ?: -1
+            val action = args["action"].textOr()?.lowercase() ?: "list"
+            val index = args["index"].intOr(-1)
             when (action) {
                 "list" -> call("anymate_get_state")
-                "add" -> call("anymate_add_layer", buildJsonObject { args["name"]?.let { put("name", it.toString().trim('"')) } })
+                "add" -> call("anymate_add_layer", buildJsonObject { args["name"]?.let { put("name", it.textOr()) } })
                 "delete" -> call("anymate_delete_layer", buildJsonObject { if (index >= 0) put("index", index) })
                 "merge" -> call("anymate_merge_layers", buildJsonObject { if (index >= 0) put("frame", index) })
                 "set" -> call(
                     "anymate_set_layer",
                     buildJsonObject {
                         if (index >= 0) put("index", index)
-                        args["name"]?.let { put("name", it.toString().trim('"')) }
-                        args["visible"]?.let { put("visible", it.toBoolean()) }
-                        args["opacity"]?.let { put("opacity", it.toDouble()) }
+                        args["name"]?.let { put("name", it.textOr()) }
+                        args["visible"]?.let { put("visible", it.boolOr(true)) }
+                        args["opacity"]?.let { put("opacity", it.doubleOr(1.0)) }
                     }
                 )
                 else -> ToolResult(text = "Unknown action '$action'.", ok = false)
@@ -257,7 +257,7 @@ object AnyMateTools {
                     add(
                         buildJsonObject {
                             put("name", "anymate_set_color")
-                            put("args", buildJsonObject { put("color", it.toString().trim('"')) })
+                            put("args", buildJsonObject { put("color", it.textOr()) })
                         }
                     )
                 }
@@ -270,8 +270,8 @@ object AnyMateTools {
                                 buildJsonObject {
                                     put("tool", tool.toString().trim('"'))
                                     args["size"]?.let { put("size", it.toDouble()) }
-                                    args["opacity"]?.let { put("opacity", it.toDouble()) }
-                                    args["shape"]?.let { put("shape", it.toString().trim('"')) }
+                                    args["opacity"]?.let { put("opacity", it.doubleOr(1.0)) }
+                                    args["shape"]?.let { put("shape", it.textOr()) }
                                 }
                             )
                         }
@@ -295,8 +295,8 @@ object AnyMateTools {
             "phone"
         ) { args ->
             val arguments = buildJsonObject {
-                args["frame"]?.let { if ((it.toIntOrNull() ?: -1) >= 0) put("frame", it.toInt()) }
-                put("max_size", args["max_size"]?.toIntOrNull() ?: 768)
+                args["frame"]?.let { if ((it.intOr(-1) ?: -1) >= 0) put("frame", it.toInt()) }
+                put("max_size", args["max_size"].intOr(768))
             }
             call("anymate_snapshot", arguments)
         }
@@ -313,8 +313,8 @@ object AnyMateTools {
             call(
                 "anymate_render_sprite_sheet",
                 buildJsonObject {
-                    put("columns", args["columns"]?.toIntOrNull() ?: 6)
-                    put("cell_size", args["cell_size"]?.toIntOrNull() ?: 180)
+                    put("columns", args["columns"].intOr(6))
+                    put("cell_size", args["cell_size"].intOr(180))
                 }
             )
         }
@@ -328,13 +328,13 @@ object AnyMateTools {
             ),
             "phone"
         ) { args ->
-            val kind = args["kind"]?.toString()?.trim('"')?.lowercase() ?: "gif"
+            val kind = args["kind"].textOr()?.lowercase() ?: "gif"
             val tool = when (kind) {
                 "png" -> "anymate_export_png"
                 "zip" -> "anymate_export_frames"
                 else -> "anymate_export_gif"
             }
-            call(tool, buildJsonObject { if (kind == "gif") put("max_size", args["max_size"]?.toIntOrNull() ?: 720) })
+            call(tool, buildJsonObject { if (kind == "gif") put("max_size", args["max_size"].intOr(720)) })
         }
 
         registry.register(
@@ -352,11 +352,11 @@ object AnyMateTools {
             ),
             "phone"
         ) { args ->
-            val preset = args["preset"]?.toString()?.trim('"') ?: "bounce"
-            val frames = (args["frames"]?.toIntOrNull() ?: 48).coerceIn(4, 240)
-            val fps = (args["fps"]?.toIntOrNull() ?: 24).coerceIn(1, 60)
-            val palette = (args["palette"] as? JsonArray)?.mapNotNull { it.toString().trim('"') } ?: emptyList()
-            val message = args["message"]?.toString()?.trim('"') ?: "ANYMATE"
+            val preset = args["preset"].textOr("bounce")
+            val frames = (args["frames"].intOr(48)).coerceIn(4, 240)
+            val fps = (args["fps"].intOr(24)).coerceIn(1, 60)
+            val palette = (args["palette"] as? JsonArray)?.mapNotNull { it.textOr() } ?: emptyList()
+            val message = args["message"].textOr("ANYMATE")
             val state = call("anymate_get_state")
             val width = Regex("\"width\"\\s*:\\s*([0-9.]+)").find(state.text)?.groupValues?.getOrNull(1)?.toDoubleOrNull() ?: 900.0
             val height = Regex("\"height\"\\s*:\\s*([0-9.]+)").find(state.text)?.groupValues?.getOrNull(1)?.toDoubleOrNull() ?: 900.0
@@ -389,7 +389,7 @@ object AnyMateTools {
                     }
                 }
             }
-            val pace = args["pace"]?.toBoolean() ?: true
+            val pace = args["pace"].boolOr(true)
             val chunk = 6
             var sent = 0
             var index = 0
@@ -417,7 +417,7 @@ object AnyMateTools {
     }
 
     private fun putFrameLayer(builder: kotlinx.serialization.json.JsonObjectBuilder, args: JsonObject) {
-        args["frame"]?.toIntOrNull()?.let { if (it >= 0) builder.put("frame", it) }
-        args["layer"]?.toIntOrNull()?.let { if (it >= 0) builder.put("layer", it) }
+        args["frame"].intOr()?.let { if (it >= 0) builder.put("frame", it) }
+        args["layer"].intOr()?.let { if (it >= 0) builder.put("layer", it) }
     }
 }

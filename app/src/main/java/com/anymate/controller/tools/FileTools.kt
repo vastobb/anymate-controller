@@ -17,8 +17,8 @@ object FileTools {
             ),
             "files"
         ) { args ->
-            val pattern = args["pattern"]?.toString()?.trim('"') ?: "*"
-            val directory = args["directory"]?.toString()?.trim('"') ?: "."
+            val pattern = args["pattern"].textOr("*")
+            val directory = args["directory"].textOr(".")
             val root = File(workspace, directory)
             if (!root.exists()) {
                 ToolResult(text = "'$directory' does not exist.", ok = false)
@@ -44,7 +44,7 @@ object FileTools {
             ToolRegistry.obj("path" to ToolRegistry.str("File path")),
             "files"
         ) { args ->
-            val path = args["path"]?.toString()?.trim('"') ?: ""
+            val path = args["path"].textOr("")
             val file = File(workspace, path)
             if (!file.exists() || !file.isFile) {
                 ToolResult(text = "'$path' does not exist.", ok = false)
@@ -70,9 +70,9 @@ object FileTools {
             ),
             "files"
         ) { args ->
-            val path = args["path"]?.toString()?.trim('"') ?: ""
-            val content = args["content"]?.toString()?.trim('"') ?: ""
-            val append = args["append"]?.toBoolean() ?: false
+            val path = args["path"].textOr("")
+            val content = args["content"].textOr("")
+            val append = args["append"].boolOr(false)
             val file = File(workspace, path)
             file.parentFile?.mkdirs()
             if (append) file.appendText(content) else file.writeText(content)
