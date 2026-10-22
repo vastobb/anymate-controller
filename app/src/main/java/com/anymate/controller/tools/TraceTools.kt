@@ -326,7 +326,13 @@ object TraceTools {
             val end = min(calls.size, index + 8)
             val slice = JsonArray(calls.toList().subList(index, end))
             try {
-                val response = client().callTool("anymate_batch", buildJsonObject { put("calls", slice) })
+                val response = client().callTool(
+                    "anymate_batch",
+                    buildJsonObject {
+                        put("calls", slice)
+                        put("pace_ms", 25)
+                    }
+                )
                 results.add(response.text)
             } catch (t: McpException) {
                 throw IllegalStateException("The phone rejected the batch: ${t.message}")

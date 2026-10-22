@@ -148,7 +148,8 @@ object AnyMateTools {
                     ToolRegistry.obj()
                 ),
                 "frame" to ToolRegistry.int("Frame index; -1 = current"),
-                "layer" to ToolRegistry.int("Layer index; -1 = current")
+                "layer" to ToolRegistry.int("Layer index; -1 = current"),
+                "pace_ms" to ToolRegistry.int("Delay between calls in ms so the artist sees each step", 0.0, 500.0)
             ),
             "phone"
         ) { args ->
@@ -213,7 +214,13 @@ object AnyMateTools {
             if (calls.isEmpty()) {
                 ToolResult(text = "Nothing to draw — provide shapes, strokes or text.", ok = false)
             } else {
-                call("anymate_batch", buildJsonObject { put("calls", calls) })
+                call(
+                    "anymate_batch",
+                    buildJsonObject {
+                        put("calls", calls)
+                        put("pace_ms", args["pace_ms"].intOr(0))
+                    }
+                )
             }
         }
 
@@ -356,7 +363,13 @@ object AnyMateTools {
             if (calls.isEmpty()) {
                 ToolResult(text = "Provide a colour or a tool.", ok = false)
             } else {
-                call("anymate_batch", buildJsonObject { put("calls", calls) })
+                call(
+                    "anymate_batch",
+                    buildJsonObject {
+                        put("calls", calls)
+                        put("pace_ms", args["pace_ms"].intOr(0))
+                    }
+                )
             }
         }
 
