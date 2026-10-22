@@ -92,6 +92,8 @@ class ControllerViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         registerTools()
+        // Warm the catalog so friendly model names resolve without a button press.
+        if (modelEndpoint.isNotBlank() && apiKey.isNotBlank()) fetchModels()
         chat.add(
             ChatLine(
                 ++chatId,
@@ -184,7 +186,12 @@ class ControllerViewModel(app: Application) : AndroidViewModel(app) {
                     }
                 }
                 if (reply.error != null) {
-                    chat.add(ChatLine(++chatId, LineRole.AGENT, reply.error, ))
+                    val known = models.isEmpty() || effectiveModel() in models
+                    val hint = if (!known) {
+                        "\n\n\"${effectiveModel()}\" is not in this endpoint's model list — " +
+                            "press Find working model in Settings."
+                    } else ""
+                    chat.add(ChatLine(++chatId, LineRole.AGENT, reply.error + hint))
                 } else {
                     chat.add(ChatLine(++chatId, LineRole.AGENT, reply.text))
                 }
@@ -250,13 +257,11 @@ class ControllerViewModel(app: Application) : AndroidViewModel(app) {
                 notify("Could not read that image. Try another one.")
                 return@launch
             }
-            val mime = resolver.getType(uri) ?: when (file.extension.lowercase()) {
-                "jpg", "jpeg" -> "image/jpeg"
-                "webp" -> "image/webp"
-                else -> "image/png"
-            }
+            val encoded = withContext(Dispatchers.IO) { encodeForVision(uri) }
+            val bytes = encoded?.first ?: file.readBytes()
+            val mime = encoded?.second ?: (resolver.getType(uri) ?: "image/png")
             attachments = attachments + Attachment(
-                file.readBytes(), mime, file.name, file.relativeTo(workspace).path
+                bytes, mime, file.name, file.relativeTo(workspace).path
             )
             refreshFiles()
         }
@@ -287,6 +292,29 @@ class ControllerViewModel(app: Application) : AndroidViewModel(app) {
             attachVideo(file.absolutePath)
         }
     }
+
+    /**
+     * Big camera photos and HEIC files are not accepted by every vision model,
+     * so downscale and re-encode to JPEG before attaching.
+     */
+    private fun encodeForVision(uri: Uri): Pair<ByteArray, String>? = runCatching {
+        val resolver = getApplication<android.app.Application>().contentResolver
+        val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        resolver.openInputStream(uri)?.use {
+            android.graphics.BitmapFactory.decodeStream(it, null, bounds)
+        }
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        var sample = 1
+        while (bounds.outWidth / sample > 1600 || bounds.outHeight / sample > 1600) sample *= 2
+        val options = android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }
+        val bitmap = resolver.openInputStream(uri)?.use {
+            android.graphics.BitmapFactory.decodeStream(it, null, options)
+        } ?: return null
+        val out = java.io.ByteArrayOutputStream()
+        bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 88, out)
+        bitmap.recycle()
+        out.toByteArray() to "image/jpeg"
+    }.getOrNull()
 
     private fun displayName(uri: Uri): String? = runCatching {
         getApplication<android.app.Application>().contentResolver

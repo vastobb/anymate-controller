@@ -150,6 +150,11 @@ object ModelCatalog {
             status == 404 ->
                 "HTTP 404 at $url\nmodel: $label\n$detail"
 
+            status == 400 && (detail.contains("image", true) ||
+                detail.contains("vision", true) || detail.contains("multimodal", true)) ->
+                "The model rejected the image attachment. Use a vision-capable model " +
+                    "(gpt-4o, llama-3.2-90b-vision, Nemotron 3 Nano Omni…) or remove the image.\n$detail"
+
             status == 429 ->
                 "Rate limited (HTTP 429). Wait a moment, or try a smaller model.\n$detail"
 
