@@ -55,3 +55,23 @@ jobs:
         with:
           name: python-dist
           path: dist/
+
+      - name: Publish GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: AnyMate Controller ${{ github.ref_name }}
+          body: |
+            **AnyMate Controller** — the brain box for the AnyMate Android studio.
+
+            • AI agent for any OpenAI-compatible endpoint (with visual feedback from canvas snapshots)
+            • ffmpeg: probe, convert, extract frames, build GIFs, join clips
+            • Python and a terminal sandboxed to a workspace folder
+            • Animation design tools: palettes, easing curves, timing plans, storyboards, sprite sheets,
+              PNG generation — with a built-in PNG codec, zero dependencies
+            • Live motion presets that paint complete animations onto the phone, frame by frame
+            • Exposes the whole toolbox over MCP (stdio or HTTP)
+
+            Install: `pip install anymate-controller` or clone and `pip install -e .`
+          files: dist/*
+          generate_release_notes: true
