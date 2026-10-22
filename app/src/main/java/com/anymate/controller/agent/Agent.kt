@@ -117,12 +117,14 @@ class Agent(
                 if (!sanitized && isRecoverable(error)) {
                     // The provider does not like our tool protocol: flatten the
                     // tool turns into plain text and try again.
+                    onEvent(AgentEvent("notice", "Endpoint rejected the tool protocol — retrying in plain text."))
                     sanitized = true
                     for (i in messages.indices) messages[i] = flattenToolTurns(messages[i])
                     continue
                 }
                 if (!droppedTools && isRecoverable(error)) {
                     // Still unhappy: continue without tools at all.
+                    onEvent(AgentEvent("notice", "Tools unavailable on this endpoint — answering without them."))
                     droppedTools = true
                     sanitized = true
                     for (i in messages.indices) messages[i] = flattenToolTurns(messages[i])

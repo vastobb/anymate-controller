@@ -170,6 +170,9 @@ class ControllerViewModel(app: Application) : AndroidViewModel(app) {
                             status = "Running ${event.label}"
                             chat.add(ChatLine(++chatId, LineRole.TOOL, "→ ${event.label}"))
                         }
+                        "notice" -> {
+                            chat.add(ChatLine(++chatId, LineRole.TOOL, event.label))
+                        }
                         else -> status = "Thinking…"
                     }
                 }

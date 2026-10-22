@@ -53,8 +53,12 @@ object ModelCatalog {
 
     /** The chat-completions URL for a base URL (or a full endpoint). */
     fun chatUrl(endpoint: String): String {
-        val base = endpoint.trim().trimEnd('/')
+        var base = endpoint.trim().trimEnd('/')
         if (base.endsWith("/chat/completions")) return base
+        // People often paste the docs URL they copied the key from.
+        if (base.endsWith("/models")) base = base.removeSuffix("/models")
+        if (base.endsWith("/responses")) base = base.removeSuffix("/responses")
+        if (base.endsWith("/completions")) base = base.removeSuffix("/completions")
         if ("/" !in base.substringAfter("://", "")) return "$base/v1/chat/completions"
         return "$base/chat/completions"
     }
