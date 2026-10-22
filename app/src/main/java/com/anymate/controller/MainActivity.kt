@@ -6,7 +6,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.anymate.controller.ui.ControllerScreen
@@ -23,7 +22,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             ControllerTheme {
                 val vm: ControllerViewModel = viewModel()
-                ControllerScreen(vm, Modifier.fillMaxSize())
+                ControllerScreen(vm)
             }
         }
     }

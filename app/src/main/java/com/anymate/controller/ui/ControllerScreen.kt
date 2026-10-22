@@ -234,7 +234,7 @@ private fun ChatPane(vm: ControllerViewModel) {
                 modifier = Modifier
                     .size(46.dp)
                     .clip(CircleShape)
-                    .background(if (vm.thinking || input.isBlank()) Ink700 else AccentGradient)
+                    .background(if (vm.thinking || input.isBlank()) Brush.linearGradient(listOf(Ink700, Ink700)) else AccentGradient)
                     .clickable(enabled = !vm.thinking && input.isNotBlank()) {
                         vm.send(input)
                         input = ""
@@ -351,7 +351,7 @@ private fun ConsolePane(vm: ControllerViewModel) {
                 modifier = Modifier
                     .size(46.dp)
                     .clip(CircleShape)
-                    .background(if (input.isBlank()) Ink700 else AccentGradient)
+                    .background(if (input.isBlank()) Brush.linearGradient(listOf(Ink700, Ink700)) else AccentGradient)
                     .clickable(enabled = input.isNotBlank()) {
                         vm.runConsole(input)
                         input = ""

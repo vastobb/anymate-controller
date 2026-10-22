@@ -177,7 +177,7 @@ object PythonLite {
             val start = pos
             if (src[pos] == '0' && pos + 1 < src.length && (src[pos + 1] == 'x' || src[pos + 1] == 'X')) {
                 pos += 2
-                while (pos < src.length && src[pos].isHexDigit()) pos++
+                while (pos < src.length && src[pos] in "0123456789abcdefABCDEF") pos++
                 val text = src.substring(start, pos)
                 tokens.add(Tok(T.NUMBER, text, num = text.substring(2).toLong(16).toDouble(), line = line))
                 return
@@ -294,7 +294,7 @@ object PythonLite {
     private data class FStr(val parts: List<Any>) : Expr
     private data class NameExpr(val id: String) : Expr
     private data class BoolLit(val value: Boolean) : Expr
-    private data class NoneLit : Expr
+    private data object NoneLit : Expr
     private data class ListLit(val items: List<Expr>) : Expr
     private data class TupleLit(val items: List<Expr>) : Expr
     private data class DictLit(val entries: List<Pair<Expr, Expr>>) : Expr

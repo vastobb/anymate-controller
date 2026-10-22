@@ -19,7 +19,7 @@ object AnyMateTools {
         client: () -> McpClient,
         workspace: java.io.File
     ) {
-        fun call(tool: String, arguments: JsonObject = JsonObject(emptyMap())): ToolResult = try {
+        suspend fun call(tool: String, arguments: JsonObject = JsonObject(emptyMap())): ToolResult = try {
             val result = client().callTool(tool, arguments)
             ToolResult(text = result.text, image = result.image, mime = result.mime, ok = !result.isError)
         } catch (t: McpException) {
@@ -269,7 +269,7 @@ object AnyMateTools {
                                 "args",
                                 buildJsonObject {
                                     put("tool", tool.toString().trim('"'))
-                                    args["size"]?.let { put("size", it.toDouble()) }
+                                    args["size"]?.let { put("size", it.doubleOr()) }
                                     args["opacity"]?.let { put("opacity", it.doubleOr(1.0)) }
                                     args["shape"]?.let { put("shape", it.textOr()) }
                                 }
@@ -295,7 +295,7 @@ object AnyMateTools {
             "phone"
         ) { args ->
             val arguments = buildJsonObject {
-                args["frame"]?.let { if ((it.intOr(-1) ?: -1) >= 0) put("frame", it.toInt()) }
+                args["frame"]?.let { if ((it.intOr(-1) ?: -1) >= 0) put("frame", it.intOr()) }
                 put("max_size", args["max_size"].intOr(768))
             }
             call("anymate_snapshot", arguments)

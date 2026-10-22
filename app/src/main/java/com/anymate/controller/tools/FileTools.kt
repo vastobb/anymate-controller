@@ -28,6 +28,7 @@ object FileTools {
                     .map { it.relativeTo(workspace).path }
                     .sorted()
                     .take(400)
+                    .toList()
                 ToolResult(
                     text = files.joinToString("\n").ifBlank { "(empty)"},
                     data = buildJsonObject {

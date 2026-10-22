@@ -80,58 +80,73 @@ object VideoTools {
         var muxer: MediaMuxer? = null
         var trackIndex = -1
         var muxerStarted = false
+        val info = MediaCodec.BufferInfo()
         return try {
-            codec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
-            codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
-            codec.start()
-            muxer = MediaMuxer(target.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
-            val info = MediaCodec.BufferInfo()
+            val encoder = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
+            codec = encoder
+            encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+            encoder.start()
+            val writer = MediaMuxer(target.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+            muxer = writer
+
+            fun drain() {
+                while (true) {
+                    val index = encoder.dequeueOutputBuffer(info, 0)
+                    if (index == MediaCodec.INFO_TRY_AGAIN_LATER) return
+                    if (index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                        trackIndex = writer.addTrack(encoder.outputFormat)
+                        writer.start()
+                        muxerStarted = true
+                        return
+                    }
+                    if (index >= 0) {
+                        if (info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0) info.size = 0
+                        if (info.size > 0 && muxerStarted) {
+                            val buffer = encoder.getOutputBuffer(index)
+                            if (buffer != null) {
+                                buffer.position(info.offset)
+                                buffer.limit(info.offset + info.size)
+                                writer.writeSampleData(trackIndex, buffer, info)
+                            }
+                        }
+                        encoder.releaseOutputBuffer(index, false)
+                        if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) return
+                    }
+                }
+            }
+
             var presentation = 0L
-            frames.forEach { bitmap ->
+            for (bitmap in frames) {
                 val scaled = if (bitmap.width == width && bitmap.height == height) bitmap
                 else Bitmap.createScaledBitmap(bitmap, width, height, true)
-                var index = codec.dequeueInputBuffer(10_000)
-                while (index < 0) {
-                    drain(codec, muxer, info, ::trackIndex, ::muxerStarted)
-                    index = codec.dequeueInputBuffer(10_000)
-                }
-                val image = codec.getInputImage(index)
-                if (image != null) {
-                    fillYuv(image, scaled, width, height)
-                    codec.queueInputBuffer(index, 0, image.width * image.height * 3 / 2, presentation, 0)
-                } else {
-                    codec.queueInputBuffer(index, 0, 0, presentation, 0)
-                }
-                presentation += 1_000_000L / fps
-                drain(codec, muxer, info, ::trackIndex, ::muxerStarted)
-                if (scaled !== bitmap) scaled.recycle()
-            }
-            val done = AtomicBoolean(false)
-            while (!done.get()) {
-                val index = codec.dequeueOutputBuffer(info, 10_000)
-                if (index == MediaCodec.INFO_TRY_AGAIN_LATER) continue
-                if (index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-                    trackIndex = muxer.addTrack(codec.outputFormat)
-                    muxer.start()
-                    muxerStarted = true
-                    continue
+                var index = encoder.dequeueInputBuffer(10_000)
+                var guard = 0
+                while (index < 0 && guard < 50) {
+                    drain()
+                    index = encoder.dequeueInputBuffer(10_000)
+                    guard++
                 }
                 if (index >= 0) {
-                    val buffer: ByteBuffer = codec.getOutputBuffer(index) ?: continue
-                    if (info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0) {
-                        info.size = 0
+                    val image = encoder.getInputImage(index)
+                    if (image != null) {
+                        fillYuv(image, scaled, width, height)
+                        encoder.queueInputBuffer(index, 0, image.width * image.height * 3 / 2, presentation, 0)
+                    } else {
+                        encoder.queueInputBuffer(index, 0, 0, presentation, 0)
                     }
-                    if (info.size > 0 && muxerStarted) {
-                        buffer.position(info.offset)
-                        buffer.limit(info.offset + info.size)
-                        muxer.writeSampleData(trackIndex, buffer, info)
-                    }
-                    codec.releaseOutputBuffer(index, false)
-                    if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) done.set(true)
                 }
+                presentation += 1_000_000L / fps
+                drain()
+                if (scaled !== bitmap) scaled.recycle()
+            }
+            var guard = 0
+            while (guard < 200) {
+                drain()
+                if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) break
+                guard++
             }
             frames.forEach { it.recycle() }
-            ToolResult(text = "MP4 written: ${target.name} (${width}×$height, ${frames.size} frames, $fps fps).")
+            ToolResult(text = "MP4 written: ${target.name} (${width}x$height, ${frames.size} frames, $fps fps).")
         } catch (t: Throwable) {
             frames.forEach { it.recycle() }
             ToolResult(
@@ -143,35 +158,6 @@ object VideoTools {
             runCatching { codec?.release() }
             runCatching { if (muxerStarted) muxer?.stop() }
             runCatching { muxer?.release() }
-        }
-    }
-
-    private fun drain(
-        codec: MediaCodec,
-        muxer: MediaMuxer?,
-        info: MediaCodec.BufferInfo,
-        trackIndex: () -> Int,
-        started: () -> Boolean
-    ) {
-        while (true) {
-            val index = codec.dequeueOutputBuffer(info, 0)
-            if (index == MediaCodec.INFO_TRY_AGAIN_LATER) return
-            if (index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-                muxer?.addTrack(codec.outputFormat)
-                muxer?.start()
-                return
-            }
-            if (index >= 0) {
-                if (info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0) info.size = 0
-                if (info.size > 0 && started() && muxer != null) {
-                    val buffer = codec.getOutputBuffer(index) ?: return
-                    buffer.position(info.offset)
-                    buffer.limit(info.offset + info.size)
-                    muxer.writeSampleData(trackIndex(), buffer, info)
-                }
-                codec.releaseOutputBuffer(index, false)
-                if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) return
-            }
         }
     }
 
@@ -199,11 +185,11 @@ object VideoTools {
                 val y = ((66 * r + 129 * g + 25 * b + 128) shr 8) + 16
                 val u = ((-38 * r - 74 * g + 112 * b + 128) shr 8) + 128
                 val v = ((112 * r - 94 * g - 18 * b + 128) shr 8) + 128
-                yBuffer.put(row * yRow + column * yPixel, y.coerceIn(0, 255))
+                yBuffer.put(row * yRow + column * yPixel, y.coerceIn(0, 255).toByte())
                 if (row % 2 == 0 && column % 2 == 0) {
                     val chromaIndex = (row / 2) * uRow + (column / 2) * uPixel
-                    uBuffer.put(chromaIndex, u.coerceIn(0, 255))
-                    vBuffer.put((row / 2) * vRow + (column / 2) * vPixel, v.coerceIn(0, 255))
+                    uBuffer.put(chromaIndex, u.coerceIn(0, 255).toByte())
+                    vBuffer.put((row / 2) * vRow + (column / 2) * vPixel, v.coerceIn(0, 255).toByte())
                 }
             }
         }
