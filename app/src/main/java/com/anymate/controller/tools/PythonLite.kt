@@ -607,111 +607,125 @@ object PythonLite {
 
         private fun parsePrimary(): Expr {
             val token = peek()
-            val result: Expr = when {
-                token.type == T.NUMBER -> {
-                    next(); Num(token.num ?: 0.0)
-                }
-                token.type == T.STRING -> {
-                    next(); StrLit(token.str.orEmpty())
-                }
-                token.type == T.FSTRING -> {
-                    next(); FStr(splitFString(token.str.orEmpty()))
-                }
-                token.type == T.KEYWORD && token.text == "True" -> {
-                    next(); BoolLit(true)
-                }
-                token.type == T.KEYWORD && token.text == "False" -> {
-                    next(); BoolLit(false)
-                }
-                token.type == T.KEYWORD && token.text == "None" -> {
-                    next(); NoneLit
-                }
-                token.type == T.NAME -> {
-                    next(); NameExpr(token.text)
-                }
-                token.type == T.OP && token.text == "(" -> {
+            return when (token.type) {
+                T.NUMBER -> {
                     next()
-                    if (peek().text == ")") {
-                        next()
-                        return TupleLit(emptyList())
-                    } else {
-                        val first = parseExpression()
-                        if (peek().type == T.OP && peek().text == ",") {
-                            val items = ArrayList<Expr>()
-                            items.add(first)
-                            while (accept(",")) {
-                                if (peek().text == ")") break
-                                items.add(parseExpression())
-                            }
-                            expect(")")
-                            TupleLit(items)
-                        } else {
-                            expect(")")
-                            first
-                        }
-                    }
+                    Num(token.num ?: 0.0)
                 }
-                token.type == T.OP && token.text == "[" -> {
+                T.STRING -> {
                     next()
-                    if (peek().text == "]") {
-                        next()
-                        return ListLit(emptyList())
-                    }
-                    val first = parseExpression()
-                    if (peek().type == T.OP && peek().text == "for") {
-                        next()
-                        val variable = next().text
-                        expect("in")
-                        val iterable = parseExpression()
-                        val condition = if (accept("if")) parseExpression() else null
-                        expect("]")
-                        CompExpr(first, variable, iterable, condition)
-                    } else {
-                        val items = ArrayList<Expr>()
-                        items.add(first)
-                        while (accept(",")) {
-                            if (peek().text == "]") break
-                            items.add(parseExpression())
-                        }
-                        expect("]")
-                        ListLit(items)
-                    }
+                    StrLit(token.str.orEmpty())
                 }
-                token.type == T.OP && token.text == "{" -> {
+                T.FSTRING -> {
                     next()
-                    if (peek().text == "}") {
+                    FStr(splitFString(token.str.orEmpty()))
+                }
+                T.NAME -> {
+                    next()
+                    NameExpr(token.text)
+                }
+                T.KEYWORD -> when (token.text) {
+                    "True" -> {
                         next()
-                        return DictLit(emptyList())
+                        BoolLit(true)
                     }
-                    val key = parseExpression()
-                    if (peek().type == T.OP && peek().text == ":") {
+                    "False" -> {
                         next()
-                        val value = parseExpression()
-                        val entries = ArrayList<Pair<Expr, Expr>>()
-                        entries.add(key to value)
-                        while (accept(",")) {
-                            if (peek().text == "}") break
-                            val k = parseExpression()
-                            expect(":")
-                            val v = parseExpression()
-                            entries.add(k to v)
-                        }
-                        expect("}")
-                        DictLit(entries)
-                    } else {
-                        val items = ArrayList<Expr>()
-                        items.add(key)
-                        while (accept(",")) {
-                            if (peek().text == "}") break
-                            items.add(parseExpression())
-                        }
-                        expect("}")
-                        SetLit(items)
+                        BoolLit(false)
                     }
+                    "None" -> {
+                        next()
+                        NoneLit
+                    }
+                    else -> throw PyError("unexpected keyword '${token.text}' (line ${token.line})")
+                }
+                T.OP -> when (token.text) {
+                    "(" -> parseGroup()
+                    "[" -> parseListOrComprehension()
+                    "{" -> parseDictOrSet()
+                    else -> throw PyError("unexpected token '${token.text}' (line ${token.line})")
                 }
                 else -> throw PyError("unexpected token '${token.text}' (line ${token.line})")
             }
-            return result
+        }
+
+        private fun parseGroup(): Expr {
+            next() // (
+            if (peek().text == ")") {
+                next()
+                return TupleLit(emptyList())
+            }
+            val first = parseExpression()
+            if (peek().type == T.OP && peek().text == ",") {
+                val items = ArrayList<Expr>()
+                items.add(first)
+                while (accept(",")) {
+                    if (peek().text == ")") break
+                    items.add(parseExpression())
+                }
+                expect(")")
+                return TupleLit(items)
+            }
+            expect(")")
+            return first
+        }
+
+        private fun parseListOrComprehension(): Expr {
+            next() // [
+            if (peek().text == "]") {
+                next()
+                return ListLit(emptyList())
+            }
+            val first = parseExpression()
+            if (peek().type == T.OP && peek().text == "for") {
+                next()
+                val variable = next().text
+                expect("in")
+                val iterable = parseExpression()
+                val condition = if (accept("if")) parseExpression() else null
+                expect("]")
+                return CompExpr(first, variable, iterable, condition)
+            }
+            val items = ArrayList<Expr>()
+            items.add(first)
+            while (accept(",")) {
+                if (peek().text == "]") break
+                items.add(parseExpression())
+            }
+            expect("]")
+            return ListLit(items)
+        }
+
+        private fun parseDictOrSet(): Expr {
+            next() // {
+            if (peek().text == "}") {
+                next()
+                return DictLit(emptyList())
+            }
+            val key = parseExpression()
+            if (peek().type == T.OP && peek().text == ":") {
+                next()
+                val value = parseExpression()
+                val entries = ArrayList<Pair<Expr, Expr>>()
+                entries.add(key to value)
+                while (accept(",")) {
+                    if (peek().text == "}") break
+                    val k = parseExpression()
+                    expect(":")
+                    val v = parseExpression()
+                    entries.add(k to v)
+                }
+                expect("}")
+                return DictLit(entries)
+            }
+            val items = ArrayList<Expr>()
+            items.add(key)
+            while (accept(",")) {
+                if (peek().text == "}") break
+                items.add(parseExpression())
+            }
+            expect("}")
+            return SetLit(items)
         }
 
         private fun splitFString(raw: String): List<Any> {
