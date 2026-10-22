@@ -476,7 +476,6 @@ object PythonLite {
         private fun parseWhile(): Stmt {
             next()
             val test = parseExpression()
-            expect(":")
             return WhileStmt(test, parseSuite())
         }
 
@@ -485,7 +484,6 @@ object PythonLite {
             val variable = next().text
             expect("in")
             val iterable = parseExpression()
-            expect(":")
             return ForStmt(variable, iterable, parseSuite())
         }
 
@@ -501,7 +499,6 @@ object PythonLite {
                 if (!accept(",")) break
             }
             expect(")")
-            expect(":")
             return DefStmt(name, params, defaults, parseSuite())
         }
 

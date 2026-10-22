@@ -67,7 +67,7 @@ class PythonLiteTest {
     fun listsAndMethods() {
         assertEquals("[1, 2, 3]\n", run("items = [3, 1, 2]\nitems.sort()\nprint(items)\n").stdout)
         assertEquals("3\n", run("items = [1, 2]\nitems.append(3)\nprint(len(items))\n").stdout)
-        assertEquals("2\n", run("items = [1, 2, 3]\nprint(items.index(2))\n").stdout)
+        assertEquals("1\n", run("items = [1, 2, 3]\nprint(items.index(2))\n").stdout)
         assertEquals("6\n", run("items = [1, 2, 3]\nprint(sum(items))\n").stdout)
     }
 
