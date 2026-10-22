@@ -17,7 +17,6 @@ import com.anymate.controller.tools.AnimTools
 import com.anymate.controller.tools.AnyMateTools
 import com.anymate.controller.tools.FileTools
 import com.anymate.controller.tools.PythonLite
-import com.anymate.controller.tools.Registry
 import com.anymate.controller.tools.ShellLite
 import com.anymate.controller.tools.ToolRegistry
 import com.anymate.controller.tools.ToolResult
