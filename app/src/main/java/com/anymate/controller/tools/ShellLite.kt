@@ -35,25 +35,27 @@ object ShellLite {
         var exit = 0
         for ((index, stage) in stages.withIndex()) {
             val isLast = index == stages.lastIndex
-            val (command, args, redirect, append) = parseStage(stage, isLast)
-            val result = execute(workspace, command, args, stdin)
+            val parsed = parseStage(stage, isLast)
+            val result = execute(workspace, parsed.command, parsed.args, stdin)
             stdin = result.stdout
-            if (result.stderr.isNotBlank()) stderr += result.stderr + "\n"
+            if (result.stderr.isNotBlank()) stderr = stderr + result.stderr + "\n"
             exit = result.exitCode
+            val redirect = parsed.redirect
             if (redirect != null) {
                 val target = safePath(workspace, redirect)
-                if (target != null) {
+                if (target == null) {
+                    stderr = stderr + "refusing to write outside the workspace\n"
+                    exit = 1
+                } else {
                     target.parentFile?.mkdirs()
-                    val content = if (append) {
-                        (if (target.exists()) target.readText() else "") + stdin
+                    val content = if (parsed.append) {
+                        val existing = if (target.exists()) target.readText() else ""
+                        existing + stdin
                     } else {
                         stdin
                     }
                     target.writeText(content)
                     stdin = ""
-                } else {
-                    stderr += "refusing to write outside the workspace\n"
-                    exit = 1
                 }
             }
             if (exit != 0) break
@@ -65,18 +67,19 @@ object ShellLite {
     private fun splitPipes(command: String): List<String> {
         val parts = ArrayList<String>()
         val current = StringBuilder()
-        var quote: Char? = null
+        var quote = ' '
         for (char in command) {
-            when {
-                quote != null -> {
-                    current.append(char)
-                    if (char == quote) quote = null
-                }
-                char == '"' || char == '\'' -> {
+            if (quote != ' ') {
+                current.append(char)
+                if (char == quote) quote = ' '
+                continue
+            }
+            when (char) {
+                '"', '\'' -> {
                     current.append(char)
                     quote = char
                 }
-                char == '|' -> {
+                '|' -> {
                     parts.add(current.toString())
                     current.clear()
                 }
@@ -84,10 +87,15 @@ object ShellLite {
             }
         }
         parts.add(current.toString())
-        return parts.map { it.trim() }.filter { it.isNotEmpty() }
+        val result = ArrayList<String>()
+        for (part in parts) {
+            val trimmed = part.trim()
+            if (trimmed.isNotEmpty()) result.add(trimmed)
+        }
+        return result
     }
 
-    private data class Stage(
+    private class Stage(
         val command: String,
         val args: List<String>,
         val redirect: String?,
@@ -102,28 +110,35 @@ object ShellLite {
             val index = text.indexOf(">")
             if (index >= 0) {
                 append = text.getOrNull(index + 1) == '>'
-                val target = text.substring(index + if (append) 2 else 1).trim()
-                redirect = target.removeSurrounding("\"")
+                val skip = if (append) 2 else 1
+                val target = text.substring(index + skip).trim().trim('"')
+                redirect = target
                 text = text.substring(0, index).trim()
             }
         }
         val tokens = tokenize(text)
-        val command = tokens.firstOrNull().orEmpty()
-        val args = tokens.drop(1)
+        val command = if (tokens.isEmpty()) "" else tokens[0]
+        val args = ArrayList<String>()
+        for (index in 1 until tokens.size) args.add(tokens[index])
         return Stage(command, args, redirect, append)
     }
 
     private fun tokenize(text: String): List<String> {
         val tokens = ArrayList<String>()
         val current = StringBuilder()
-        var quote: Char? = null
+        var quote = ' '
         for (char in text) {
-            when {
-                quote != null -> {
-                    if (char == quote) quote = null else current.append(char)
+            if (quote != ' ') {
+                if (char == quote) {
+                    quote = ' '
+                } else {
+                    current.append(char)
                 }
-                char == '"' || char == '\'' -> quote = char
-                char.isWhitespace() -> {
+                continue
+            }
+            when (char) {
+                '"', '\'' -> quote = char
+                ' ', '\t' -> {
                     if (current.isNotEmpty()) {
                         tokens.add(current.toString())
                         current.clear()
@@ -156,78 +171,104 @@ object ShellLite {
     // ---- execution --------------------------------------------------------
     private fun execute(workspace: File, command: String, args: List<String>, stdin: String): ShellResult {
         return when (command) {
-            "help" -> ShellResult(
-                stdout = buildString {
-                    appendLine("AnyMate Controller shell — commands:")
-                    appendLine(commands.joinToString("  "))
-                    appendLine()
-                    appendLine("Pipes (a | b), redirection (> file, >> file) and quoting are supported.")
-                    appendLine("python <code>  → run a Python snippet")
-                    appendLine("mcp <tool> <json> → call a tool on the phone")
-                }
-            )
-            "ls" -> ls(workspace, args)
-            "cd" -> {
-                val target = safePath(workspace, args.firstOrNull() ?: ".")
-                if (target == null) ShellResult(stderr = "path outside the workspace", exitCode = 1)
-                else ShellResult(stdout = target.absolutePath + "\n")
-            }
+            "help" -> help()
+            "ls" -> listFiles(workspace, args)
+            "cd" -> changeDirectory(workspace, args)
             "pwd" -> ShellResult(stdout = workspace.canonicalPath + "\n")
             "cat" -> cat(workspace, args, stdin)
             "head" -> head(workspace, args, stdin)
             "tail" -> tail(workspace, args, stdin)
-            "echo" -> ShellResult(stdout = (args.joinToString(" ") + "\n"))
-            "mkdir" -> mkdir(workspace, args)
+            "echo" -> ShellResult(stdout = args.joinToString(" ") + "\n")
+            "mkdir" -> makeDirectory(workspace, args)
             "rm" -> remove(workspace, args)
-            "cp" -> copyMove(workspace, args, move = false)
-            "mv" -> copyMove(workspace, args, move = true)
+            "cp" -> copyOrMove(workspace, args, false)
+            "mv" -> copyOrMove(workspace, args, true)
             "touch" -> touch(workspace, args)
-            "wc" -> wc(workspace, args, stdin)
+            "wc" -> wordCount(workspace, args, stdin)
             "grep" -> grep(workspace, args, stdin)
             "find" -> find(workspace, args)
             "tree" -> tree(workspace)
             "date" -> ShellResult(stdout = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date()) + "\n")
             "whoami" -> ShellResult(stdout = "artist\n")
-            "env" -> ShellResult(stdout = "workspace=${workspace.canonicalPath}\n")
-            "which" -> ShellResult(
-                stdout = commands.filter { it == args.firstOrNull() }.joinToString("\n") + "\n"
-            )
-            "clear" -> ShellResult(stdout = "\u000c")
-            "stat" -> stat(workspace, args)
-            "du" -> ShellResult(stdout = du(workspace, args).stdout)
+            "env" -> ShellResult(stdout = "workspace=" + workspace.canonicalPath + "\n")
+            "which" -> ShellResult(stdout = whichCommand(args))
+            "clear" -> ShellResult(stdout = "")
+            "stat" -> fileStat(workspace, args)
+            "du" -> ShellResult(stdout = diskUsage(workspace, args))
             "python", "py" -> PythonLite.run(workspace, args.joinToString(" "))
-            "mcp" -> ShellResult(stderr = "Use the Console tab to call phone tools, or the Chat tab.\n")
-            else -> ShellResult(stderr = "unknown command: $command\n", exitCode = 127)
+            "mcp" -> ShellResult(stderr = "Call phone tools from the Chat tab, or use: mcp <tool> <json>\n")
+            else -> ShellResult(stderr = "unknown command: " + command + "\n", exitCode = 127)
         }
     }
 
-    private fun ls(workspace: File, args: List<String>): ShellResult {
+    private fun help(): ShellResult {
+        val lines = ArrayList<String>()
+        lines.add("AnyMate Controller shell - commands:")
+        lines.add(commands.joinToString("  "))
+        lines.add("")
+        lines.add("Pipes (a | b), redirection (> file, >> file) and quoting are supported.")
+        lines.add("python <code>   run a Python snippet")
+        lines.add("mcp <tool> <json>   call a tool on the phone")
+        return ShellResult(stdout = lines.joinToString("\n") + "\n")
+    }
+
+    private fun whichCommand(args: List<String>): String {
+        val wanted = args.firstOrNull()
+        val found = commands.filter { it == wanted }
+        return found.joinToString("\n") + "\n"
+    }
+
+    private fun listFiles(workspace: File, args: List<String>): ShellResult {
         val long = args.contains("-l")
-        val path = safePath(workspace, args.firstOrNull { !it.startsWith("-") } ?: ".") ?: return ShellResult(stderr = "bad path", exitCode = 1)
-        if (!path.exists()) return ShellResult(stderr = "no such path: ${path.name}\n", exitCode = 1)
-        val entries = if (path.isDirectory) path.listFiles()?.toList().orEmpty().sortedBy { it.name }
-        else listOf(path)
+        val raw = args.firstOrNull { !it.startsWith("-") } ?: "."
+        val path = safePath(workspace, raw)
+        if (path == null) return ShellResult(stderr = "bad path\n", exitCode = 1)
+        if (!path.exists()) return ShellResult(stderr = "no such path: " + path.name + "\n", exitCode = 1)
+        val entries: List<File> = if (path.isDirectory) {
+            val list = path.listFiles()
+            if (list == null) emptyList() else list.sortedBy { it.name }
+        } else {
+            listOf(path)
+        }
         if (entries.isEmpty()) return ShellResult(stdout = "")
-        return ShellResult(
-            stdout = entries.joinToString("\n") { entry ->
-                if (long) {
-                    val size = if (entry.isDirectory) "-" else entry.length().toString()
-                    val marker = if (entry.isDirectory) "d" else "-"
-                    "$size\t$marker ${entry.name}"
-                } else {
-                    entry.name + if (entry.isDirectory) "/" else ""
-                }
-            } + "\n"
-        )
+        val rendered = ArrayList<String>()
+        for (entry in entries) {
+            if (long) {
+                val size = if (entry.isDirectory) "-" else entry.length().toString()
+                val marker = if (entry.isDirectory) "d" else "-"
+                rendered.add(size + "\t" + marker + " " + entry.name)
+            } else {
+                rendered.add(entry.name + if (entry.isDirectory) "/" else "")
+            }
+        }
+        return ShellResult(stdout = rendered.joinToString("\n") + "\n")
+    }
+
+    private fun changeDirectory(workspace: File, args: List<String>): ShellResult {
+        val raw = args.firstOrNull() ?: "."
+        val path = safePath(workspace, raw)
+            ?: return ShellResult(stderr = "path outside the workspace\n", exitCode = 1)
+        return ShellResult(stdout = path.absolutePath + "\n")
+    }
+
+    private fun readFiles(workspace: File, files: List<String>): String {
+        val builder = StringBuilder()
+        for (name in files) {
+            val path = safePath(workspace, name) ?: continue
+            if (!path.exists() || !path.isFile) continue
+            builder.append(path.readText())
+        }
+        return builder.toString()
     }
 
     private fun cat(workspace: File, args: List<String>, stdin: String): ShellResult {
         if (args.isEmpty()) return ShellResult(stdout = stdin)
         val builder = StringBuilder()
-        for (arg in args) {
-            val file = safePath(workspace, arg) ?: return ShellResult(stderr = "bad path: $arg\n", exitCode = 1)
-            if (!file.exists()) return ShellResult(stderr = "no such file: $arg\n", exitCode = 1)
-            builder.append(file.readText())
+        for (name in args) {
+            val path = safePath(workspace, name)
+            if (path == null) return ShellResult(stderr = "bad path: " + name + "\n", exitCode = 1)
+            if (!path.exists()) return ShellResult(stderr = "no such file: " + name + "\n", exitCode = 1)
+            builder.append(path.readText())
         }
         return ShellResult(stdout = builder.toString())
     }
@@ -235,43 +276,54 @@ object ShellLite {
     private fun head(workspace: File, args: List<String>, stdin: String): ShellResult {
         val count = args.firstOrNull { it.toIntOrNull() != null }?.toInt() ?: 10
         val files = args.filter { it.toIntOrNull() == null }
-        val text = if (files.isEmpty()) stdin else files.mapNotNull { safePath(workspace, it)?.takeIf { f -> f.exists() }?.readText() }.joinToString("\n")
-        return ShellResult(stdout = text.lines().take(count).joinToString("\n").trimEnd('\n') + "\n")
+        val text = if (files.isEmpty()) stdin else readFiles(workspace, files)
+        val lines = text.split("\n")
+        val result = lines.take(count.coerceAtLeast(0)).joinToString("\n")
+        return ShellResult(stdout = result + "\n")
     }
 
     private fun tail(workspace: File, args: List<String>, stdin: String): ShellResult {
         val count = args.firstOrNull { it.toIntOrNull() != null }?.toInt() ?: 10
         val files = args.filter { it.toIntOrNull() == null }
-        val text = if (files.isEmpty()) stdin else files.mapNotNull { safePath(workspace, it)?.takeIf { f -> f.exists() }?.readText() }.joinToString("\n")
-        val lines = text.lines()
-        val start = (lines.size - count).coerceAtLeast(0)
-        return ShellResult(stdout = lines.subList(start, lines.size).joinToString("\n").trimEnd('\n') + "\n")
+        val text = if (files.isEmpty()) stdin else readFiles(workspace, files)
+        val lines = text.split("\n")
+        val result = lines.takeLast(count.coerceAtLeast(0)).joinToString("\n")
+        return ShellResult(stdout = result + "\n")
     }
 
-    private fun mkdir(workspace: File, args: List<String]): ShellResult {
-        for (arg in args.filter { !it.startsWith("-") }) {
-            val target = safePath(workspace, arg) ?: return ShellResult(stderr = "bad path\n", exitCode = 1)
-            if (!target.mkdirs() && !target.exists()) return ShellResult(stderr = "cannot create $arg\n", exitCode = 1)
+    private fun makeDirectory(workspace: File, args: List<String>): ShellResult {
+        for (name in args.filter { !it.startsWith("-") }) {
+            val path = safePath(workspace, name)
+                ?: return ShellResult(stderr = "bad path\n", exitCode = 1)
+            if (!path.mkdirs() && !path.exists()) {
+                return ShellResult(stderr = "cannot create " + name + "\n", exitCode = 1)
+            }
         }
         return ShellResult()
     }
 
     private fun remove(workspace: File, args: List<String>): ShellResult {
         val recursive = args.contains("-r") || args.contains("-rf")
-        for (arg in args.filter { !it.startsWith("-") }) {
-            val target = safePath(workspace, arg) ?: return ShellResult(stderr = "bad path\n", exitCode = 1)
-            if (!target.exists()) continue
-            val ok = if (target.isDirectory && recursive) target.deleteRecursively() else target.delete()
-            if (!ok) return ShellResult(stderr = "cannot remove $arg\n", exitCode = 1)
+        for (name in args.filter { !it.startsWith("-") }) {
+            val path = safePath(workspace, name)
+                ?: return ShellResult(stderr = "bad path\n", exitCode = 1)
+            if (!path.exists()) continue
+            val removed = if (path.isDirectory && recursive) path.deleteRecursively() else path.delete()
+            if (!removed) return ShellResult(stderr = "cannot remove " + name + "\n", exitCode = 1)
         }
         return ShellResult()
     }
 
-    private fun copyMove(workspace: File, args: List<String>, move: Boolean): ShellResult {
-        if (args.size < 2) return ShellResult(stderr = "usage: ${if (move) "mv" else "cp"} source target\n", exitCode = 1)
-        val source = safePath(workspace, args[0]) ?: return ShellResult(stderr = "bad source\n", exitCode = 1)
-        var target = safePath(workspace, args[1]) ?: return ShellResult(stderr = "bad target\n", exitCode = 1)
-        if (!source.exists()) return ShellResult(stderr = "no such file: ${args[0]}\n", exitCode = 1)
+    private fun copyOrMove(workspace: File, args: List<String>, move: Boolean): ShellResult {
+        if (args.size < 2) {
+            val usage = if (move) "mv source target" else "cp source target"
+            return ShellResult(stderr = "usage: " + usage + "\n", exitCode = 1)
+        }
+        val source = safePath(workspace, args[0])
+            ?: return ShellResult(stderr = "bad source\n", exitCode = 1)
+        var target = safePath(workspace, args[1])
+            ?: return ShellResult(stderr = "bad target\n", exitCode = 1)
+        if (!source.exists()) return ShellResult(stderr = "no such file: " + args[0] + "\n", exitCode = 1)
         if (target.isDirectory) target = File(target, source.name)
         target.parentFile?.mkdirs()
         if (move) {
@@ -282,82 +334,100 @@ object ShellLite {
         } else {
             source.copyTo(target, overwrite = true)
         }
-        return ShellResult(stdout = "${source.name} → ${target.name}\n")
+        return ShellResult(stdout = source.name + " -> " + target.name + "\n")
     }
 
     private fun touch(workspace: File, args: List<String>): ShellResult {
-        for (arg in args.filter { !it.startsWith("-") }) {
-            val target = safePath(workspace, arg) ?: continue
-            target.parentFile?.mkdirs()
-            if (!target.exists()) target.writeText("")
+        for (name in args.filter { !it.startsWith("-") }) {
+            val path = safePath(workspace, name) ?: continue
+            path.parentFile?.mkdirs()
+            if (!path.exists()) path.writeText("")
         }
         return ShellResult()
     }
 
-    private fun wc(workspace: File, args: List<String>, stdin: String): ShellResult {
+    private fun wordCount(workspace: File, args: List<String>, stdin: String): ShellResult {
         val files = args.filter { !it.startsWith("-") }
-        val text = if (files.isEmpty()) stdin else files.mapNotNull { safePath(workspace, it)?.takeIf { f -> f.exists() }?.readText() }.joinToString("\n")
-        val lines = if (text.isEmpty()) 0 else text.trimEnd('\n').lines().size
+        val text = if (files.isEmpty()) stdin else readFiles(workspace, files)
+        val lines = if (text.isEmpty()) 0 else text.trimEnd().split("\n").size
         val words = text.split(Regex("\\s+")).count { it.isNotBlank() }
-        val chars = text.length
-        return ShellResult(stdout = "$lines $words $chars\n")
+        return ShellResult(stdout = lines.toString() + " " + words + " " + text.length + "\n")
     }
 
     private fun grep(workspace: File, args: List<String>, stdin: String): ShellResult {
-        val pattern = args.firstOrNull { !it.startsWith("-") } ?: return ShellResult(stderr = "usage: grep pattern [file]\n", exitCode = 1)
+        val pattern = args.firstOrNull { !it.startsWith("-") }
+            ?: return ShellResult(stderr = "usage: grep pattern [file]\n", exitCode = 1)
         val ignoreCase = args.contains("-i")
         val files = args.filter { it != pattern && !it.startsWith("-") }
-        val text = if (files.isEmpty()) stdin else files.mapNotNull { safePath(workspace, it)?.takeIf { f -> f.exists() }?.readText() }.joinToString("\n")
+        val text = if (files.isEmpty()) stdin else readFiles(workspace, files)
         val regex = try {
             Regex(pattern, if (ignoreCase) setOf(RegexOption.IGNORE_CASE) else emptySet())
         } catch (t: Throwable) {
-            return ShellResult(stderr = "bad pattern: $pattern\n", exitCode = 2)
+            return ShellResult(stderr = "bad pattern: " + pattern + "\n", exitCode = 2)
         }
-        val hits = text.lines().filter { regex.containsMatchIn(it) }
-        return ShellResult(stdout = hits.joinToString("\n").trimEnd('\n') + if (hits.isNotEmpty()) "\n" else "")
+        val hits = ArrayList<String>()
+        for (line in text.split("\n")) {
+            if (regex.containsMatchIn(line)) hits.add(line)
+        }
+        if (hits.isEmpty()) return ShellResult(stdout = "")
+        return ShellResult(stdout = hits.joinToString("\n") + "\n")
     }
 
     private fun find(workspace: File, args: List<String>): ShellResult {
         val pattern = args.firstOrNull { !it.startsWith("-") } ?: "."
         val glob = args.getOrNull(1) ?: "*"
-        val base = safePath(workspace, pattern) ?: return ShellResult(stderr = "bad path\n", exitCode = 1)
-        val matches = base.walkTopDown()
-            .filter { it.isFile && it.name.contains(glob.replace("*", "")) }
-            .map { it.relativeTo(workspace).path }
-            .toList()
-        return ShellResult(stdout = matches.joinToString("\n").trimEnd('\n') + if (matches.isNotEmpty()) "\n" else "")
+        val base = safePath(workspace, pattern)
+            ?: return ShellResult(stderr = "bad path\n", exitCode = 1)
+        val needle = glob.replace("*", "")
+        val matches = ArrayList<String>()
+        base.walkTopDown().forEach { file ->
+            if (file.isFile && (needle.isEmpty() || file.name.contains(needle))) {
+                matches.add(file.relativeTo(workspace).path)
+            }
+        }
+        if (matches.isEmpty()) return ShellResult(stdout = "")
+        return ShellResult(stdout = matches.joinToString("\n") + "\n")
     }
 
     private fun tree(workspace: File): ShellResult {
-        val builder = StringBuilder(workspace.name + "\n")
-        fun walk(directory: File, prefix: String) {
-            val children = directory.listFiles()?.toList()?.sortedBy { it.name }.orEmpty()
-            children.forEachIndexed { index, child ->
-                val last = index == children.lastIndex
-                builder.append(prefix).append(if (last) "└── " else "├── ").append(child.name).append('\n')
-                if (child.isDirectory) walk(child, prefix + if (last) "    " else "│   ")
-            }
-        }
-        walk(workspace, "")
+        val builder = StringBuilder()
+        builder.append(workspace.name).append("\n")
+        walkTree(workspace, "", builder)
         return ShellResult(stdout = builder.toString())
     }
 
-    private fun stat(workspace: File, args: List<String>): ShellResult {
-        val target = safePath(workspace, args.firstOrNull() ?: ".") ?: return ShellResult(stderr = "bad path\n", exitCode = 1)
-        if (!target.exists()) return ShellResult(stderr = "no such path\n", exitCode = 1)
-        return ShellResult(
-            stdout = buildString {
-                appendLine("name      ${target.name}")
-                appendLine("type      ${if (target.isDirectory) "directory" else "file"}")
-                appendLine("size      ${if (target.isDirectory) "-" else target.length()}")
-                appendLine("modified  ${SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date(target.lastModified()))}")
-            }
-        )
+    private fun walkTree(directory: File, prefix: String, builder: StringBuilder) {
+        val list = directory.listFiles()
+        val children = if (list == null) emptyList() else list.sortedBy { it.name }
+        for (index in children.indices) {
+            val child = children[index]
+            val last = index == children.lastIndex
+            builder.append(prefix)
+            if (last) builder.append("    ") else builder.append("|   ")
+            builder.append(if (last) "|-- " else "|-- ")
+            builder.append(child.name).append("\n")
+            if (child.isDirectory) walkTree(child, prefix + if (last) "    " else "|   ", builder)
+        }
     }
 
-    private fun du(workspace: File, args: List<String>): ShellResult {
-        val target = safePath(workspace, args.firstOrNull() ?: ".") ?: return ShellResult(stderr = "bad path\n", exitCode = 1)
-        val bytes = if (target.isFile) target.length() else target.walkTopDown().filter { it.isFile }.sumOf { it.length() }
-        return ShellResult(stdout = "${bytes / 1024} KB\t${target.name}\n")
+    private fun fileStat(workspace: File, args: List<String>): ShellResult {
+        val raw = args.firstOrNull() ?: "."
+        val path = safePath(workspace, raw)
+            ?: return ShellResult(stderr = "bad path\n", exitCode = 1)
+        if (!path.exists()) return ShellResult(stderr = "no such path\n", exitCode = 1)
+        val size = if (path.isDirectory) "-" else path.length().toString()
+        val modified = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date(path.lastModified()))
+        val text = "name      " + path.name + "\n" +
+            "type      " + (if (path.isDirectory) "directory" else "file") + "\n" +
+            "size      " + size + "\n" +
+            "modified  " + modified + "\n"
+        return ShellResult(stdout = text)
+    }
+
+    private fun diskUsage(workspace: File, args: List<String>): String {
+        val raw = args.firstOrNull() ?: "."
+        val path = safePath(workspace, raw) ?: return "0 KB\n"
+        val bytes = if (path.isFile) path.length() else path.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+        return (bytes / 1024).toString() + " KB\t" + path.name + "\n"
     }
 }
