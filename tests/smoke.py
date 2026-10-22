@@ -152,6 +152,16 @@ def main() -> int:
     print("animation tools")
     palette = run(registry.call("anim_palette", {"base": "#7C3AED", "count": 5}))
     check("palette", palette.ok and len(palette.data["colors"]) == 5)
+    check(
+        "palette keeps the base colour",
+        palette.data["colors"][0].upper() == "#7C3AED",
+        str(palette.data["colors"]),
+    )
+    check(
+        "palette is not monochrome noise",
+        len(set(palette.data["colors"])) >= 3,
+        str(palette.data["colors"]),
+    )
     easing = run(registry.call("anim_easing", {"easing": "ease-in-out", "count": 8}))
     check("easing", easing.ok and easing.data["values"] == sorted(easing.data["values"]))
     timing = run(registry.call("anim_timing", {"fps": 24, "seconds": 2}))

@@ -61,8 +61,13 @@ def hex_to_rgb(value: str) -> Tuple[int, int, int]:
     return tuple(int(text[i : i + 2], 16) for i in (0, 2, 4, 6))  # type: ignore[return-value]
 
 
-def rgb_to_hex(rgb: Sequence[int]) -> str:
-    r, g, b = (max(0, min(255, int(c))) for c in rgb[:3])
+def rgb_to_hex(rgb: Sequence[float], floats: bool = False) -> str:
+    """Format an RGB triple as #RRGGBB. Pass floats=True for 0..1 values."""
+
+    parts = list(rgb[:3])
+    if floats:
+        parts = [p * 255.0 for p in parts]
+    r, g, b = (max(0, min(255, int(round(c)))) for c in parts)
     return f"#{r:02X}{g:02X}{b:02X}"
 
 
@@ -71,20 +76,23 @@ def _harmony(base: str, scheme: str, count: int) -> List[str]:
     h, l, s = colorsys.rgb_to_hls(r / 255, g / 255, b / 255)
     colors: List[str] = []
     if scheme == "complementary":
-        offsets = [0, 0.5, 0.5, 0, 0.08, 0.58]
+        offsets = [0.0, 0.5, 0.52, 0.48, 0.0, 0.5]
     elif scheme == "triadic":
-        offsets = [0, 1 / 3, 2 / 3, 0, 1 / 3, 2 / 3]
+        offsets = [0.0, 1 / 3, 2 / 3, 0.0, 1 / 3, 2 / 3]
     elif scheme == "analogous":
-        offsets = [0, 0.08, -0.08, 0.16, -0.16, 0]
+        offsets = [0.0, 0.08, -0.08, 0.16, -0.16, 0.0]
     elif scheme == "monochrome":
-        offsets = [0] * 6
-    else:  # split
-        offsets = [0, 0.5, 0.55, 0.05, 0.5, 0.45]
+        offsets = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    else:  # split complementary
+        offsets = [0.0, 0.42, 0.58, 0.05, 0.42, 0.58]
     for index in range(count):
         hue = (h + offsets[index % len(offsets)]) % 1.0
-        light = max(0.08, min(0.92, l + (0.16 if index % 3 == 0 else (-0.12 if index % 3 == 1 else 0.0))))
-        sat = max(0.05, min(1.0, s + (0.0 if index % 3 == 0 else 0.1)))
-        colors.append(rgb_to_hex(colorsys.hls_to_rgb(hue, light, sat)))
+        if index == 0:
+            light, sat = l, s
+        else:
+            light = max(0.10, min(0.90, l + (0.10 if index % 3 == 1 else (-0.08 if index % 3 == 2 else 0.0))))
+            sat = max(0.08, min(s, s + (0.04 if index % 3 == 2 else 0.0)))
+        colors.append(rgb_to_hex(colorsys.hls_to_rgb(hue, light, sat), floats=True))
     return colors
 
 

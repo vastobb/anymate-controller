@@ -6,6 +6,7 @@ browse the workspace — all from the browser on your own machine.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import threading
 import urllib.request
@@ -245,8 +246,6 @@ class WebApp:
 
                     def on_event(event: Dict[str, Any]) -> None:
                         events.append(event)
-
-                    import asyncio
 
                     loop = asyncio.new_event_loop()
                     try:
