@@ -39,7 +39,8 @@ data class AgentEvent(val kind: String, val label: String)
 data class Attachment(
     val bytes: ByteArray,
     val mime: String = "image/png",
-    val label: String = "image"
+    val label: String = "image",
+    val path: String? = null
 )
 
 /**
@@ -115,7 +116,9 @@ class Agent(
                     put("tool_choice", "auto")
                 }
                 put("temperature", 0.6)
-                put("max_tokens", 4096)
+                // Reasoning models (Nemotron 3, o-series, DeepSeek-R1…) spend
+                // tokens before they answer; 4096 cut them off mid-thought.
+                put("max_tokens", 8192)
             }
 
             val response = try {
@@ -151,11 +154,33 @@ class Agent(
             val message = choices.getOrNull(0)?.objOrNull()?.get("message")?.objOrNull()
                 ?: JsonObject(emptyMap())
             val content = message.contentText()
+            val reasoning = message["reasoning_content"].strOrNull()
+                ?: message["reasoning"].strOrNull()
             val toolCalls = message["tool_calls"]?.arrOrNull() ?: JsonArray(emptyList())
             val legacyCall = message["function_call"]?.objOrNull()
+            val finish = choices.getOrNull(0)?.objOrNull()?.get("finish_reason").strOrNull()
 
             if (toolCalls.isEmpty() && legacyCall == null) {
-                return AgentReply(text = content.trim().ifBlank { "Done." }, steps = steps, toolCalls = calls)
+                val answer = content.trim()
+                if (answer.isEmpty() && !reasoning.isNullOrBlank()) {
+                    return AgentReply(
+                        text = "The model returned only internal reasoning and no answer.\n" +
+                            "It is a reasoning model and probably hit the token limit — try again, " +
+                            "or pick a non-reasoning model.\n\n" +
+                            reasoning.trim().take(700),
+                        steps = steps,
+                        toolCalls = calls
+                    )
+                }
+                if (answer.isEmpty() && finish == "length") {
+                    return AgentReply(
+                        text = "The model hit the token limit before answering. Try a shorter request " +
+                            "or a non-reasoning model.",
+                        steps = steps,
+                        toolCalls = calls
+                    )
+                }
+                return AgentReply(text = answer.ifBlank { "Done." }, steps = steps, toolCalls = calls)
             }
 
             messages.add(

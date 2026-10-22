@@ -48,6 +48,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
@@ -209,6 +212,12 @@ private fun ChatPane(vm: ControllerViewModel) {
     val listState = rememberLazyListState()
     var input by remember { mutableStateOf("") }
     var picker by remember { mutableStateOf<String?>(null) }
+    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) vm.attachImageUri(uri)
+    }
+    val videoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) vm.attachVideoUri(uri)
+    }
 
     LaunchedEffect(vm.chat.size, vm.thinking) {
         if (vm.chat.isNotEmpty()) {
@@ -264,9 +273,26 @@ private fun ChatPane(vm: ControllerViewModel) {
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            SmallButton(label = "Image", icon = Icons.Rounded.Image, onClick = { picker = "image" })
-            SmallButton(label = "Video", icon = Icons.Rounded.Movie, onClick = { picker = "video" })
+            SmallButton(
+                label = "Gallery",
+                icon = Icons.Rounded.Image,
+                onClick = {
+                    imagePicker.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                    )
+                }
+            )
+            SmallButton(
+                label = "Video",
+                icon = Icons.Rounded.Movie,
+                onClick = {
+                    videoPicker.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)
+                    )
+                }
+            )
             SmallButton(label = "Canvas", icon = Icons.Rounded.Hub, onClick = { vm.attachCanvas() })
+            SmallButton(label = "Files", icon = Icons.Rounded.FolderOpen, onClick = { picker = "files" })
         }
         Spacer(Modifier.height(6.dp))
         Row(
@@ -703,7 +729,13 @@ private fun FilePickerDialog(
     kind: String,
     onDismiss: () -> Unit
 ) {
-    val extensions = if (kind == "video") setOf("mp4", "mov", "mkv", "webm", "3gp", "avi") else setOf("png", "jpg", "jpeg", "webp", "bmp")
+    val videoExtensions = setOf("mp4", "mov", "mkv", "webm", "3gp", "avi", "m4v")
+    val imageExtensions = setOf("png", "jpg", "jpeg", "webp", "bmp", "heic")
+    val extensions = when (kind) {
+        "video" -> videoExtensions
+        "image" -> imageExtensions
+        else -> imageExtensions + videoExtensions
+    }
     val files = vm.files.filter { path ->
         val extension = path.substringAfterLast('.', "").lowercase()
         extension in extensions
@@ -717,7 +749,11 @@ private fun FilePickerDialog(
         ) {
             Column(Modifier.padding(16.dp)) {
                 Text(
-                    if (kind == "video") "Attach a video" else "Attach an image",
+                    when (kind) {
+                        "video" -> "Attach a video"
+                        "image" -> "Attach an image"
+                        else -> "Attach from the workspace"
+                    },
                     color = TextPrimary,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold
@@ -738,14 +774,19 @@ private fun FilePickerDialog(
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(8.dp))
                                     .clickable {
-                                        if (kind == "video") vm.attachVideo(path) else vm.attachImage(path)
+                                        val isVideo = path.substringAfterLast('.', "").lowercase() in videoExtensions
+                                        if (isVideo) vm.attachVideo(path) else vm.attachImage(path)
                                         onDismiss()
                                     }
                                     .padding(horizontal = 8.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(
-                                    if (kind == "video") Icons.Rounded.Movie else Icons.Rounded.Image,
+                                    if (path.substringAfterLast('.', "").lowercase() in videoExtensions) {
+                                        Icons.Rounded.Movie
+                                    } else {
+                                        Icons.Rounded.Image
+                                    },
                                     null,
                                     tint = TextMuted,
                                     modifier = Modifier.size(13.dp)

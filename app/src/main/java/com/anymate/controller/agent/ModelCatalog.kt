@@ -1,6 +1,7 @@
 package com.anymate.controller.agent
 
 import com.anymate.controller.arrOrNull
+import com.anymate.controller.contentText
 import com.anymate.controller.objOrNull
 import com.anymate.controller.providerErrorText
 import com.anymate.controller.strOrNull
@@ -125,6 +126,15 @@ object ModelCatalog {
         val detail = providerErrorText(parsed) ?: body.take(240)
         val label = if (model.isBlank()) "(no model)" else model
         return when {
+            isNvidia(url) && label.contains("nemotron-3-ultra", true) &&
+                (detail.contains("not found", true) || detail.contains("404")) ->
+                "NVIDIA Nemotron 3 Ultra (nvidia/nemotron-3-ultra-550b-a55b) is not provisioned " +
+                    "for self-serve accounts yet — it fails in the build.nvidia.com playground too.\n" +
+                    "Use Nemotron 3 Super instead:\n" +
+                    "  nvidia/nemotron-3-super-120b-a12b\n" +
+                    "or the free Super model on OpenRouter:\n" +
+                    "  nvidia/nemotron-3-super-120b-a12b:free\n\n$detail"
+
             isNvidia(url) && (detail.contains("not found for account", true) ||
                 detail.contains("function", true) && detail.contains("not found", true)) ->
                 "NVIDIA NIM: model \"$label\" is not enabled for this NVIDIA account.\n" +
@@ -148,6 +158,30 @@ object ModelCatalog {
 
             else -> "HTTP $status — $detail"
         }
+    }
+
+    /**
+     * Maps a friendly name ("nemotron 3 super") onto the exact id the endpoint
+     * lists ("nvidia/nemotron-3-super-120b-a12b"). Returns null when nothing is
+     * close enough.
+     */
+    fun resolveModel(input: String, catalog: List<String>): String? {
+        val wanted = input.trim()
+        if (wanted.isBlank() || catalog.isEmpty()) return null
+        if (wanted in catalog) return wanted
+        val tokens = wanted.lowercase()
+            .split(Regex("[^a-z0-9]+"))
+            .filter { it.length > 1 || it.toIntOrNull() != null }
+        if (tokens.isEmpty()) return null
+        val scored = catalog.map { id ->
+            val lower = id.lowercase()
+            val hits = tokens.count { lower.contains(it) }
+            val coverage = hits.toFloat() / tokens.size
+            id to coverage
+        }.filter { it.second >= 0.66f }
+        return scored.maxWithOrNull(
+            compareBy<Pair<String, Float>> { it.second }.thenByDescending { it.first.length }
+        )?.first
     }
 
     private fun orderCandidates(endpoint: String, candidates: List<String>): List<String> {
@@ -206,7 +240,7 @@ object ModelCatalog {
         val root = runCatching { json.parseToJsonElement(text) as? JsonObject }.getOrNull() ?: return null
         val message = root["choices"]?.arrOrNull()?.firstOrNull()?.objOrNull()
             ?.get("message")?.objOrNull() ?: return null
-        return com.anymate.controller.contentText(message)
+        return message.contentText()
     }
 
     private fun request(

@@ -1,5 +1,8 @@
 package com.anymate.controller
 
+import android.net.Uri
+import android.provider.OpenableColumns
+
 import android.app.Application
 import android.graphics.BitmapFactory
 import androidx.compose.runtime.getValue
@@ -153,7 +156,9 @@ class ControllerViewModel(app: Application) : AndroidViewModel(app) {
         if (prompt.isEmpty() || thinking) return
         val pending = attachments
         attachments = emptyList()
-        val label = if (pending.isEmpty()) prompt else prompt + "\n" + pending.joinToString("\n") { "[attached: ${it.label}]" }
+        val label = if (pending.isEmpty()) prompt else prompt + "\n" + pending.joinToString("\n") {
+            "[attached: ${it.label}" + (it.path?.let { path -> " · workspace:$path" } ?: "") + "]"
+        }
         chat.add(ChatLine(++chatId, LineRole.USER, label))
         thinking = true
         status = "Thinking…"
@@ -161,7 +166,7 @@ class ControllerViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 val agent = Agent(
                     endpoint = modelEndpoint,
-                    model = modelName,
+                    model = effectiveModel(),
                     apiKey = apiKey,
                     registry = registry,
                     sendImages = sendImages
@@ -213,9 +218,83 @@ class ControllerViewModel(app: Application) : AndroidViewModel(app) {
                 return@launch
             }
             val bytes = withContext(Dispatchers.IO) { file.readBytes() }
-            attachments = attachments + Attachment(bytes, "image/png", file.name)
+            val mime = when (file.extension.lowercase()) {
+                "jpg", "jpeg" -> "image/jpeg"
+                "webp" -> "image/webp"
+                "bmp" -> "image/bmp"
+                else -> "image/png"
+            }
+            attachments = attachments + Attachment(
+                bytes, mime, file.name, file.relativeTo(workspace).path
+            )
         }
     }
+
+    /** An image picked in the system photo picker. Also saved in the workspace. */
+    fun attachImageUri(uri: Uri) {
+        viewModelScope.launch {
+            val resolver = getApplication<android.app.Application>().contentResolver
+            val name = displayName(uri) ?: "gallery-${System.currentTimeMillis()}.png"
+            val file = withContext(Dispatchers.IO) {
+                runCatching {
+                    val dir = java.io.File(workspace, "imports").apply { mkdirs() }
+                    val safe = name.replace(Regex("[^A-Za-z0-9._-]"), "_")
+                    val target = java.io.File(dir, if (safe.contains('.')) safe else "$safe.png")
+                    resolver.openInputStream(uri)?.use { input ->
+                        target.outputStream().use { output -> input.copyTo(output) }
+                    }
+                    target
+                }.getOrNull()
+            }
+            if (file == null || !file.exists() || file.length() == 0L) {
+                notify("Could not read that image. Try another one.")
+                return@launch
+            }
+            val mime = resolver.getType(uri) ?: when (file.extension.lowercase()) {
+                "jpg", "jpeg" -> "image/jpeg"
+                "webp" -> "image/webp"
+                else -> "image/png"
+            }
+            attachments = attachments + Attachment(
+                file.readBytes(), mime, file.name, file.relativeTo(workspace).path
+            )
+            refreshFiles()
+        }
+    }
+
+    /** A video picked in the system picker: copied to the workspace, then sampled. */
+    fun attachVideoUri(uri: Uri) {
+        viewModelScope.launch {
+            val resolver = getApplication<android.app.Application>().contentResolver
+            val name = displayName(uri) ?: "video-${System.currentTimeMillis()}.mp4"
+            notify("Importing ${name.take(28)}…")
+            val file = withContext(Dispatchers.IO) {
+                runCatching {
+                    val dir = java.io.File(workspace, "imports").apply { mkdirs() }
+                    val safe = name.replace(Regex("[^A-Za-z0-9._-]"), "_")
+                    val target = java.io.File(dir, if (safe.contains('.')) safe else "$safe.mp4")
+                    resolver.openInputStream(uri)?.use { input ->
+                        target.outputStream().use { output -> input.copyTo(output) }
+                    }
+                    target
+                }.getOrNull()
+            }
+            if (file == null || !file.exists() || file.length() == 0L) {
+                notify("Could not read that video. Try another one.")
+                return@launch
+            }
+            refreshFiles()
+            attachVideo(file.absolutePath)
+        }
+    }
+
+    private fun displayName(uri: Uri): String? = runCatching {
+        getApplication<android.app.Application>().contentResolver
+            .query(uri, null, null, null, null)?.use { cursor ->
+                val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (index >= 0 && cursor.moveToFirst()) cursor.getString(index) else null
+            }
+    }.getOrNull()
 
     fun attachVideo(path: String) {
         viewModelScope.launch {
@@ -233,8 +312,9 @@ class ControllerViewModel(app: Application) : AndroidViewModel(app) {
                 notify("No frames could be read from '${file.name}'.")
                 return@launch
             }
+            val relative = runCatching { file.relativeTo(workspace).path }.getOrDefault(file.name)
             val added = frames.map { frame ->
-                Attachment(frame.readBytes(), "image/png", frame.name)
+                Attachment(frame.readBytes(), "image/png", frame.name, relative)
             }
             attachments = attachments + added
             notify("Attached ${added.size} frames from '${file.name}'.")
@@ -295,7 +375,7 @@ class ControllerViewModel(app: Application) : AndroidViewModel(app) {
         endpointTest = null
         viewModelScope.launch {
             val result = withContext(Dispatchers.IO) {
-                runCatching { ModelCatalog.testChat(modelEndpoint, apiKey, modelName) }
+                runCatching { ModelCatalog.testChat(modelEndpoint, apiKey, effectiveModel()) }
             }
             endpointTesting = false
             endpointTest = result.getOrElse { it.message ?: "The endpoint did not answer." }
@@ -345,6 +425,13 @@ class ControllerViewModel(app: Application) : AndroidViewModel(app) {
     fun updateAgentModel(name: String) {
         modelName = name
         prefs.edit().putString("model.name", name).apply()
+    }
+
+    /** "nemotron 3 super" → "nvidia/nemotron-3-super-120b-a12b". */
+    private fun effectiveModel(): String {
+        val resolved = ModelCatalog.resolveModel(modelName, models)
+        if (resolved != null && resolved != modelName) updateAgentModel(resolved)
+        return resolved ?: modelName
     }
 
     // ---- console -----------------------------------------------------------
