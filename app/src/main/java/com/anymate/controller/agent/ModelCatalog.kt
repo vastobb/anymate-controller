@@ -4,6 +4,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.contentOrNull
@@ -46,6 +49,53 @@ object ModelCatalog {
             }
         }
         throw IllegalStateException(lastError)
+    }
+
+    /** The chat-completions URL for a base URL (or a full endpoint). */
+    fun chatUrl(endpoint: String): String {
+        val base = endpoint.trim().trimEnd('/')
+        if (base.endsWith("/chat/completions")) return base
+        if ("/" !in base.substringAfter("://", "")) return "$base/v1/chat/completions"
+        return "$base/chat/completions"
+    }
+
+    /** One tiny completion, no tools — isolates endpoint/auth/model problems. */
+    suspend fun testChat(endpoint: String, apiKey: String, model: String): String = withContext(Dispatchers.IO) {
+        val url = chatUrl(endpoint)
+        val connection = (URL(url).openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            doOutput = true
+            connectTimeout = 20_000
+            readTimeout = 60_000
+            setRequestProperty("Content-Type", "application/json")
+            if (apiKey.isNotBlank()) setRequestProperty("Authorization", "Bearer $apiKey")
+        }
+        try {
+            val payload = buildJsonObject {
+                put("model", model)
+                put("max_tokens", 16)
+                put("messages", buildJsonArray {
+                    add(buildJsonObject {
+                        put("role", "user")
+                        put("content", "Reply with the single word: ready")
+                    })
+                })
+            }
+            connection.outputStream.use { it.write(payload.toString().toByteArray()) }
+            val status = connection.responseCode
+            val text = (if (status in 200..299) connection.inputStream else connection.errorStream)
+                ?.bufferedReader()?.use { it.readText() }.orEmpty()
+            if (status !in 200..299) {
+                throw IllegalStateException("HTTP $status from $url — ${text.take(300)}")
+            }
+            val root = runCatching { json.parseToJsonElement(text).jsonObject }.getOrNull()
+            val content = root?.get("choices")?.jsonArray?.firstOrNull()
+                ?.jsonObject?.get("message")?.jsonObject?.get("content")
+                ?.jsonPrimitive?.contentOrNull
+            "Endpoint OK at $url — model replied: ${content?.take(60) ?: "(empty)"}"
+        } finally {
+            connection.disconnect()
+        }
     }
 
     private fun modelUrls(baseUrl: String): List<String> {

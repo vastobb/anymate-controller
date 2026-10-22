@@ -33,6 +33,7 @@ import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.Movie
+import androidx.compose.material.icons.rounded.NetworkCheck
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Hub
 import androidx.compose.material.icons.rounded.Settings
@@ -546,20 +547,29 @@ private fun SettingsPane(vm: ControllerViewModel) {
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             SmallButton(label = "Fetch models", icon = Icons.Rounded.Refresh, onClick = { vm.fetchModels() })
+            SmallButton(label = "Test endpoint", icon = Icons.Rounded.NetworkCheck, onClick = { vm.testEndpoint() })
             SmallButton(label = "Save agent settings", onClick = { vm.saveSettings() })
         }
         if (vm.modelsLoading) {
             Text("Fetching models…", color = TextMuted, fontSize = 11.sp)
         }
+        if (vm.endpointTesting) {
+            Text("Testing the endpoint…", color = TextMuted, fontSize = 11.sp)
+        }
+        vm.endpointTest?.let {
+            Text(
+                it,
+                color = if (it.startsWith("Endpoint OK")) Success else Danger,
+                fontSize = 11.sp,
+                lineHeight = 16.sp
+            )
+        }
         vm.modelsError?.let {
             Text(it, color = Danger, fontSize = 11.sp, lineHeight = 16.sp)
         }
         if (vm.models.isNotEmpty()) {
-            LazyColumn(
-                modifier = Modifier.fillMaxWidth().height(160.dp),
-                verticalArrangement = Arrangement.spacedBy(2.dp)
-            ) {
-                items(vm.models) { model ->
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                vm.models.take(40).forEach { model ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -574,6 +584,13 @@ private fun SettingsPane(vm: ControllerViewModel) {
                         }
                         Text(model, color = TextSecondary, fontSize = 11.sp, fontFamily = Mono)
                     }
+                }
+                if (vm.models.size > 40) {
+                    Text(
+                        "+${vm.models.size - 40} more — type a name above",
+                        color = TextMuted,
+                        fontSize = 10.sp
+                    )
                 }
             }
         }

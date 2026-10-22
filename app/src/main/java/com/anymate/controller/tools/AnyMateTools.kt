@@ -50,6 +50,81 @@ object AnyMateTools {
         }
 
         registry.register(
+            "anymate_human_draw",
+            "Draw the way a person does: block a stroke, shape or whole figure with natural wobble, " +
+                "tapered ends and overshoot. kind='stroke' (points), 'shape' (shape + x1..y2) or " +
+                "'figure' (pose + x + y + size). detail='easy' for roughs, 'detailed' for line art.",
+            ToolRegistry.obj(
+                "kind" to ToolRegistry.str("stroke | shape | figure"),
+                "points" to ToolRegistry.arr("Guide points for a stroke", ToolRegistry.obj()),
+                "shape" to ToolRegistry.str("line | arrow | rect | ellipse"),
+                "pose" to ToolRegistry.str("idle | walk | run | wave | sit"),
+                "x" to ToolRegistry.num("X"),
+                "y" to ToolRegistry.num("Y"),
+                "x1" to ToolRegistry.num("Start X"),
+                "y1" to ToolRegistry.num("Start Y"),
+                "x2" to ToolRegistry.num("End X"),
+                "y2" to ToolRegistry.num("End Y"),
+                "size" to ToolRegistry.num("Figure height px"),
+                "detail" to ToolRegistry.str("easy | medium | detailed"),
+                "color" to ToolRegistry.str("Hex colour"),
+                "width" to ToolRegistry.num("Stroke width px"),
+                "frame" to ToolRegistry.int("Frame index; -1 = current"),
+                "layer" to ToolRegistry.int("Layer index; -1 = current")
+            ),
+            "phone"
+        ) { args ->
+            val kind = args["kind"].textOr("stroke").lowercase()
+            val tool = when (kind) {
+                "shape" -> "anymate_draw_human_shape"
+                "figure" -> "anymate_draw_human_figure"
+                else -> "anymate_draw_human_stroke"
+            }
+            val payload = buildJsonObject {
+                put("detail", args["detail"].textOr("medium"))
+                args["color"]?.let { put("color", it.textOr("#111827")) }
+                args["width"]?.let { put("width", it.doubleOr(5.0)) }
+                args["frame"]?.let { put("frame", it.intOr(-1)) }
+                args["layer"]?.let { put("layer", it.intOr(-1)) }
+                when (kind) {
+                    "shape" -> {
+                        put("shape", args["shape"].textOr("ellipse"))
+                        put("x1", args["x1"].doubleOr(0.0))
+                        put("y1", args["y1"].doubleOr(0.0))
+                        put("x2", args["x2"].doubleOr(100.0))
+                        put("y2", args["y2"].doubleOr(100.0))
+                    }
+                    "figure" -> {
+                        put("pose", args["pose"].textOr("idle"))
+                        put("x", args["x"].doubleOr(0.0))
+                        put("y", args["y"].doubleOr(0.0))
+                        put("size", args["size"].doubleOr(300.0))
+                    }
+                    else -> {
+                        val points = args["points"]?.let { it as? kotlinx.serialization.json.JsonArray }
+                        put("points", points ?: kotlinx.serialization.json.JsonArray(emptyList()))
+                    }
+                }
+            }
+            call(tool, payload)
+        }
+
+        registry.register(
+            "anymate_tool",
+            "Call any tool on the phone by name with raw arguments. Use anymate_status to discover " +
+                "everything the current AnyMate build exposes.",
+            ToolRegistry.obj(
+                "name" to ToolRegistry.str("Phone tool name"),
+                "arguments" to ToolRegistry.obj()
+            ),
+            "phone"
+        ) { args ->
+            val name = args["name"].textOr()
+            if (name.isBlank()) ToolResult(text = "name is required.", ok = false)
+            else call(name, args["arguments"] as? JsonObject ?: JsonObject(emptyMap()))
+        }
+
+        registry.register(
             "anymate_state",
             "Read the live project state from the phone: canvas size, fps, frames, layers and tool settings.",
             ToolRegistry.obj(),

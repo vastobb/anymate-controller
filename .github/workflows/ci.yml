@@ -81,6 +81,13 @@ jobs:
             **AnyMate Controller** — the brain box for the AnyMate Android studio, as an Android app.
 
             • **AI director** for any OpenAI-compatible endpoint, with tool calling
+            • **Resilient tool calls** — if a gateway rejects the tool protocol, the conversation is
+              flattened and retried instead of failing with a 404
+            • **Auto-fetch models** from your API key and URL — no more typing model names
+            • **Chat attachments** — send images, video frames and live canvas snapshots to a vision model
+            • **Image → art** (`anim_trace_image`): trace a picture into vector strokes on the phone
+            • **Video → animation** (`anim_video_to_animation`), then retime, reverse, hold, tint, flip or tween it
+            • **Human drawing** over MCP — block a stroke, shape or figure, then refine it
             • **Phone tools** — draw, animate, play and export on the AnyMate app over MCP
             • **Python** runtime on device (a compact Python 3 subset)
             • **Terminal** with pipes, redirection and file commands, sandboxed to a workspace

@@ -57,16 +57,14 @@ object TraceTools {
                 ?: return@register ToolResult(text = "Could not decode '$path'.", ok = false)
             try {
                 if (mode == "flat") {
-                    val bytes = ByteArrayOutputStream().also { bitmap.compress(Bitmap.CompressFormat.PNG, 95, it) }
-                        .toByteArray()
+                    val bytes = encodePng(bitmap)
                     val call = buildJsonObject {
                         put("name", "anymate_draw_bitmap")
                         put(
                             "args",
                             buildJsonObject {
                                 put("png_base64", Base64.encodeToString(bytes, Base64.NO_WRAP))
-                                put("x", 0)
-                                put("y", 0)
+                                put("fit", true)
                                 put("layer", layer)
                                 if (frame >= 0) put("frame", frame)
                             }
@@ -79,6 +77,13 @@ object TraceTools {
                     )
                 } else {
                     val strokes = traceStrokes(bitmap, detail)
+                    val (canvasW, canvasH) = canvasSize(client)
+                    val fit = min(
+                        canvasW.toFloat() / bitmap.width,
+                        canvasH.toFloat() / bitmap.height
+                    )
+                    val offsetX = (canvasW - bitmap.width * fit) / 2f
+                    val offsetY = (canvasH - bitmap.height * fit) / 2f
                     if (strokes.isEmpty()) {
                         ToolResult(text = "No lines were found in '$path'.", ok = false)
                     } else {
@@ -92,12 +97,16 @@ object TraceTools {
                                             buildJsonObject {
                                                 put(
                                                     "points",
-                                                    JsonArray(stroke.map { point ->
-                                                        buildJsonArray {
-                                                            add(kotlinx.serialization.json.JsonPrimitive(point.x))
-                                                            add(kotlinx.serialization.json.JsonPrimitive(point.y))
+                                                    buildJsonArray {
+                                                        for (point in stroke) {
+                                                            add(
+                                                                buildJsonObject {
+                                                                    put("x", (point.x * fit + offsetX).toDouble())
+                                                                    put("y", (point.y * fit + offsetY).toDouble())
+                                                                }
+                                                            )
                                                         }
-                                                    })
+                                                    }
                                                 )
                                                 put("color", color)
                                                 put("width", width)
@@ -153,6 +162,7 @@ object TraceTools {
             if (extracted.isEmpty()) {
                 return@register ToolResult(text = "No frames could be extracted from '$path'.", ok = false)
             }
+            val (canvasW, canvasH) = canvasSize(client)
             val calls = buildJsonArray {
                 for (frameFile in extracted) {
                     add(
@@ -164,8 +174,7 @@ object TraceTools {
                     val bitmap = BitmapFactory.decodeFile(frameFile.absolutePath)
                     if (bitmap == null) continue
                     if (mode == "flat") {
-                        val bytes = ByteArrayOutputStream()
-                            .also { bitmap.compress(Bitmap.CompressFormat.PNG, 92, it) }.toByteArray()
+                        val bytes = encodePng(bitmap)
                         add(
                             buildJsonObject {
                                 put("name", "anymate_draw_bitmap")
@@ -173,14 +182,19 @@ object TraceTools {
                                     "args",
                                     buildJsonObject {
                                         put("png_base64", Base64.encodeToString(bytes, Base64.NO_WRAP))
-                                        put("x", 0)
-                                        put("y", 0)
+                                        put("fit", true)
                                         put("layer", layer)
                                     }
                                 )
                             }
                         )
                     } else {
+                        val fit = min(
+                            canvasW.toFloat() / bitmap.width,
+                            canvasH.toFloat() / bitmap.height
+                        )
+                        val offsetX = (canvasW - bitmap.width * fit) / 2f
+                        val offsetY = (canvasH - bitmap.height * fit) / 2f
                         for (stroke in traceStrokes(bitmap, detail)) {
                             add(
                                 buildJsonObject {
@@ -190,12 +204,16 @@ object TraceTools {
                                         buildJsonObject {
                                             put(
                                                 "points",
-                                                JsonArray(stroke.map { point ->
-                                                    buildJsonArray {
-                                                        add(kotlinx.serialization.json.JsonPrimitive(point.x))
-                                                        add(kotlinx.serialization.json.JsonPrimitive(point.y))
+                                                buildJsonArray {
+                                                    for (point in stroke) {
+                                                        add(
+                                                        buildJsonObject {
+                                                            put("x", (point.x * fit + offsetX).toDouble())
+                                                            put("y", (point.y * fit + offsetY).toDouble())
+                                                        }
+                                                    )
                                                     }
-                                                })
+                                                }
                                             )
                                             put("color", color)
                                             put("width", 4.0)
@@ -268,11 +286,44 @@ object TraceTools {
     }
 
     // ---- helpers ----------------------------------------------------------
+    /** Keeps payloads small: large phone canvases make multi-megabyte base64. */
+    private fun encodePng(bitmap: Bitmap, maxDim: Int = 720): ByteArray {
+        val longest = max(bitmap.width, bitmap.height)
+        val scaled = if (longest > maxDim) {
+            val ratio = maxDim.toFloat() / longest
+            Bitmap.createScaledBitmap(
+                bitmap,
+                max(1, (bitmap.width * ratio).roundToInt()),
+                max(1, (bitmap.height * ratio).roundToInt()),
+                true
+            )
+        } else {
+            null
+        }
+        return try {
+            ByteArrayOutputStream().also {
+                (scaled ?: bitmap).compress(Bitmap.CompressFormat.PNG, 92, it)
+            }.toByteArray()
+        } finally {
+            scaled?.recycle()
+        }
+    }
+
+    /** Reads the phone canvas size from its live state text. */
+    private suspend fun canvasSize(client: () -> McpClient): Pair<Int, Int> {
+        val text = runCatching {
+            client().callTool("anymate_get_state", JsonObject(emptyMap())).text
+        }.getOrDefault("")
+        val width = Regex("\"width\"\\s*:\\s*(\\d+)").find(text)?.groupValues?.get(1)?.toIntOrNull()
+        val height = Regex("\"height\"\\s*:\\s*(\\d+)").find(text)?.groupValues?.get(1)?.toIntOrNull()
+        return (width ?: 900) to (height ?: 900)
+    }
+
     private suspend fun callPhone(client: () -> McpClient, calls: JsonArray): JsonObject {
         val results = ArrayList<String>()
         var index = 0
         while (index < calls.size) {
-            val end = min(calls.size, index + 30)
+            val end = min(calls.size, index + 8)
             val slice = JsonArray(calls.toList().subList(index, end))
             try {
                 val response = client().callTool("anymate_batch", buildJsonObject { put("calls", slice) })

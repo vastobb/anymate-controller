@@ -71,6 +71,8 @@ class ControllerViewModel(app: Application) : AndroidViewModel(app) {
     var models by mutableStateOf<List<String>>(emptyList())
     var modelsLoading by mutableStateOf(false)
     var modelsError by mutableStateOf<String?>(null)
+    var endpointTest by mutableStateOf<String?>(null)
+    var endpointTesting by mutableStateOf(false)
         private set
     var files by mutableStateOf<List<String>>(emptyList())
         private set
@@ -108,6 +110,9 @@ class ControllerViewModel(app: Application) : AndroidViewModel(app) {
             .apply()
         client = null
         connected = false
+        if (modelEndpoint.isNotBlank() && apiKey.isNotBlank() && models.isEmpty()) {
+            fetchModels()
+        }
     }
 
     fun mcpClient(): McpClient {
@@ -273,6 +278,22 @@ class ControllerViewModel(app: Application) : AndroidViewModel(app) {
                 modelsLoading = false
                 modelsError = it.message ?: "Could not fetch models."
             }
+        }
+    }
+
+    fun testEndpoint() {
+        if (modelEndpoint.isBlank()) {
+            endpointTest = "Set an endpoint first."
+            return
+        }
+        endpointTesting = true
+        endpointTest = null
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching { ModelCatalog.testChat(modelEndpoint, apiKey, modelName) }
+            }
+            endpointTesting = false
+            endpointTest = result.getOrElse { it.message ?: "The endpoint did not answer." }
         }
     }
 

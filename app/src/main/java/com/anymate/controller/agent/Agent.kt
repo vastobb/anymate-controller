@@ -55,12 +55,7 @@ class Agent(
 ) {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
-    private fun chatUrl(): String {
-        val base = endpoint.trim().trimEnd('/')
-        if (base.endsWith("/chat/completions")) return base
-        if ("/" !in base.substringAfter("://", "")) return "$base/v1/chat/completions"
-        return "$base/chat/completions"
-    }
+    private fun chatUrl(): String = ModelCatalog.chatUrl(endpoint)
 
     private suspend fun post(payload: JsonObject): JsonObject = withContext(Dispatchers.IO) {
         val connection = (URL(chatUrl()).openConnection() as HttpURLConnection).apply {
@@ -321,7 +316,11 @@ class Agent(
         val detail = body?.get("error")?.jsonObject?.get("message")?.jsonPrimitive?.contentOrNull
             ?: body?.get("detail")?.jsonPrimitive?.contentOrNull
             ?: error.body.take(240)
-        return "Model endpoint error (${error.status}): $detail"
+        val hint = if (error.status == 404 && detail.contains("function", true)) {
+            "\nThe endpoint rejected the tool protocol. This is usually a gateway that expects a " +
+                "different tool-call format — the controller has already retried in plain-text mode."
+        } else ""
+        return "Model endpoint error (${error.status}): $detail$hint"
     }
 
     companion object {
@@ -336,13 +335,14 @@ You control:
 How to work:
 1. Check anymate_status first — if the phone is offline, say so and continue with local work.
 2. Draw with anymate_draw (one call, many shapes) or anymate_motion_preset for a whole loop.
-   For hand-drawn quality use anymate_draw_human_stroke / anymate_draw_human_shape, which add
-   natural wobble, taper and pressure — pass detail="easy" first, then "detailed" if asked.
+   For hand-drawn quality use anymate_human_draw (kind=stroke|shape|figure), which adds natural
+   wobble, taper and overshoot — pass detail="easy" first, then "detailed" to refine.
 3. To copy artwork from a picture use anim_trace_image; to turn a video into an animation use
    anim_video_to_animation; then refine with anim_edit_animation.
 4. Look at your work with anymate_snapshot / anymate_sprite_sheet.
 5. Use py.exec for calculations, palettes and data wrangling; sh.exec for files and tooling.
-6. Be concrete: paths, frame counts, durations, what changed. Never invent results.
+6. Any tool the phone exposes can be reached with anymate_tool when no shortcut exists.
+7. Be concrete: paths, frame counts, durations, what changed. Never invent results.
 """.trimIndent()
     }
 }
