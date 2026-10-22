@@ -311,6 +311,7 @@ object PythonLite {
     private sealed interface Stmt
     private data class ExprStmt(val expression: Expr) : Stmt
     private data class AssignStmt(val targets: List<Expr>, val value: Expr) : Stmt
+    private data class TupleAssignStmt(val targets: List<Expr>, val values: List<Expr>) : Stmt
     private data class AugAssignStmt(val target: Expr, val op: String, val value: Expr) : Stmt
     private data class IfStmt(val branches: List<Pair<Expr, List<Stmt>>>, val elseBody: List<Stmt>?) : Stmt
     private data class WhileStmt(val test: Expr, val body: List<Stmt>) : Stmt
@@ -399,14 +400,47 @@ object PythonLite {
 
         private fun parseSimpleStatement(): Stmt {
             val first = parseExpression()
+            if (peek().type == T.OP && peek().text == ",") {
+                val targets = ArrayList<Expr>()
+                targets.add(first)
+                while (accept(",")) {
+                    targets.add(parseExpression())
+                }
+                expect("=")
+                val values = ArrayList<Expr>()
+                values.add(parseExpression())
+                while (accept(",")) {
+                    values.add(parseExpression())
+                }
+                expectNewline()
+                return TupleAssignStmt(targets, values)
+            }
             if (peek().type == T.OP && peek().text == "=") {
                 val targets = ArrayList<Expr>()
                 targets.add(first)
-                while (accept("=")) {
-                    targets.add(parseExpression())
+                var value: Expr? = null
+                while (peek().type == T.OP && peek().text == "=") {
+                    next()
+                    val expression = parseExpression()
+                    if (peek().type == T.OP && peek().text == ",") {
+                        next()
+                        val values = ArrayList<Expr>()
+                        values.add(expression)
+                        while (accept(",")) {
+                            values.add(parseExpression())
+                        }
+                        expectNewline()
+                        return TupleAssignStmt(targets, values)
+                    }
+                    if (peek().type == T.OP && peek().text == "=") {
+                        targets.add(expression)
+                        continue
+                    }
+                    value = expression
+                    break
                 }
                 expectNewline()
-                return AssignStmt(targets, targets.last())
+                return AssignStmt(targets, value ?: throw PyError("invalid assignment"))
             }
             val augmented = listOf("+=", "-=", "*=", "/=", "//=", "**=", "%=")
             if (peek().type == T.OP && peek().text in augmented) {
@@ -677,7 +711,7 @@ object PythonLite {
                 return ListLit(emptyList())
             }
             val first = parseExpression()
-            if (peek().type == T.OP && peek().text == "for") {
+            if (peek().type == T.KEYWORD && peek().text == "for") {
                 next()
                 val variable = next().text
                 expect("in")
@@ -832,6 +866,12 @@ object PythonLite {
                 is AssignStmt -> {
                     val value = eval(statement.value, env)
                     for (target in statement.targets) assign(target, value, env)
+                }
+                is TupleAssignStmt -> {
+                    for (index in statement.targets.indices) {
+                        val value = statement.values.getOrNull(index)?.let { eval(it, env) }
+                        assign(statement.targets[index], value, env)
+                    }
                 }
                 is AugAssignStmt -> {
                     val current = eval(statement.target, env)
@@ -1529,10 +1569,18 @@ object PythonLite {
                 }
                 is Float -> pyStr(value.toDouble())
                 is Boolean -> if (value) "True" else "False"
-                is List<*> -> value.joinToString(", ", "[", "]") { pyStr(it) }
-                is Set<*> -> value.joinToString(", ", "{", "}") { pyStr(it) }
-                is Map<*, *> -> value.entries.joinToString(", ", "{", "}") { "${pyStr(it.key)}: ${pyStr(it.value)}" }
+                is List<*> -> value.joinToString(", ", "[", "]") { pyRepr(it) }
+                is Set<*> -> value.joinToString(", ", "{", "}") { pyRepr(it) }
+                is Map<*, *> -> value.entries.joinToString(", ", "{", "}") { "${pyRepr(it.key)}: ${pyRepr(it.value)}" }
                 else -> value.toString()
+            }
+
+            fun pyRepr(value: Any?): String = when (value) {
+                is String -> "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'"
+                is List<*> -> value.joinToString(", ", "[", "]") { pyRepr(it) }
+                is Set<*> -> value.joinToString(", ", "{", "}") { pyRepr(it) }
+                is Map<*, *> -> value.entries.joinToString(", ", "{", "}") { "${pyRepr(it.key)}: ${pyRepr(it.value)}" }
+                else -> pyStr(value)
             }
 
             fun pyEquals(left: Any?, right: Any?): Boolean = when {
