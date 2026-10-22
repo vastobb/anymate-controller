@@ -1,5 +1,10 @@
 package com.anymate.controller.agent
 
+import com.anymate.controller.arrOrNull
+import com.anymate.controller.objOrNull
+import com.anymate.controller.providerErrorText
+import com.anymate.controller.strOrNull
+
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -116,11 +121,8 @@ object ModelCatalog {
 
     /** Turns a provider error body into something a person can act on. */
     fun explain(status: Int, url: String, body: String, model: String): String {
-        val parsed = runCatching { json.parseToJsonElement(body).jsonObject }.getOrNull()
-        val detail = parsed?.get("detail")?.jsonPrimitive?.contentOrNull
-            ?: parsed?.get("error")?.jsonObject?.get("message")?.jsonPrimitive?.contentOrNull
-            ?: parsed?.get("message")?.jsonPrimitive?.contentOrNull
-            ?: body.take(240)
+        val parsed = runCatching { json.parseToJsonElement(body) as? JsonObject }.getOrNull()
+        val detail = providerErrorText(parsed) ?: body.take(240)
         val label = if (model.isBlank()) "(no model)" else model
         return when {
             isNvidia(url) && (detail.contains("not found for account", true) ||
@@ -201,10 +203,10 @@ object ModelCatalog {
     }
 
     private fun contentOf(text: String): String? {
-        val root = runCatching { json.parseToJsonElement(text).jsonObject }.getOrNull() ?: return null
-        return root["choices"]?.jsonArray?.firstOrNull()
-            ?.jsonObject?.get("message")?.jsonObject?.get("content")
-            ?.jsonPrimitive?.contentOrNull
+        val root = runCatching { json.parseToJsonElement(text) as? JsonObject }.getOrNull() ?: return null
+        val message = root["choices"]?.arrOrNull()?.firstOrNull()?.objOrNull()
+            ?.get("message")?.objOrNull() ?: return null
+        return com.anymate.controller.contentText(message)
     }
 
     private fun request(
@@ -251,14 +253,14 @@ object ModelCatalog {
     }
 
     private fun parseModels(text: String): List<String> {
-        val root = runCatching { json.parseToJsonElement(text).jsonObject }.getOrNull() ?: return emptyList()
-        val data = root["data"]?.jsonArray ?: root["models"]?.jsonArray ?: return emptyList()
+        val root = runCatching { json.parseToJsonElement(text) as? JsonObject }.getOrNull() ?: return emptyList()
+        val data = root["data"]?.arrOrNull() ?: root["models"]?.arrOrNull() ?: return emptyList()
         val models = LinkedHashSet<String>()
         for (element in data) {
-            val obj = element.jsonObject
-            val id = obj["id"]?.jsonPrimitive?.contentOrNull
-                ?: obj["name"]?.jsonPrimitive?.contentOrNull
-                ?: obj["model"]?.jsonPrimitive?.contentOrNull
+            val obj = element.objOrNull() ?: continue
+            val id = obj["id"].strOrNull()
+                ?: obj["name"].strOrNull()
+                ?: obj["model"].strOrNull()
             if (!id.isNullOrBlank()) models.add(id)
         }
         return models.sorted()

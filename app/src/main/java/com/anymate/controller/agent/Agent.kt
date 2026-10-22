@@ -1,5 +1,11 @@
 package com.anymate.controller.agent
 
+import com.anymate.controller.arrOrNull
+import com.anymate.controller.contentText
+import com.anymate.controller.objOrNull
+import com.anymate.controller.providerErrorText
+import com.anymate.controller.strOrNull
+
 import android.util.Base64
 import com.anymate.controller.tools.ToolRegistry
 import com.anymate.controller.tools.ToolResult
@@ -75,7 +81,8 @@ class Agent(
             if (status !in 200..299) {
                 throw AgentException(status, text)
             }
-            json.parseToJsonElement(text).jsonObject
+            json.parseToJsonElement(text) as? JsonObject
+                ?: throw AgentException(status, "The endpoint returned a non-object JSON response: ${text.take(200)}")
         } finally {
             connection.disconnect()
         }
@@ -133,18 +140,19 @@ class Agent(
                 return AgentReply(steps = steps, toolCalls = calls, error = describe(error))
             }
 
-            response["error"]?.let { error ->
-                val message = error.jsonObject["message"]?.jsonPrimitive?.contentOrNull ?: error.toString()
+            if (response["error"] != null && response["error"] !is kotlinx.serialization.json.JsonNull) {
+                val message = providerErrorText(response) ?: response["error"].toString()
                 return AgentReply(steps = steps, toolCalls = calls, error = "Model error: $message")
             }
-            val choices = response["choices"]?.jsonArray ?: JsonArray(emptyList())
+            val choices = response["choices"]?.arrOrNull() ?: JsonArray(emptyList())
             if (choices.isEmpty()) {
                 return AgentReply(steps = steps, toolCalls = calls, error = "The model returned no choices.")
             }
-            val message = choices[0].jsonObject["message"]?.jsonObject ?: JsonObject(emptyMap())
-            val content = message["content"]?.jsonPrimitive?.contentOrNull.orEmpty()
-            val toolCalls = message["tool_calls"]?.jsonArray ?: JsonArray(emptyList())
-            val legacyCall = message["function_call"]?.jsonObject
+            val message = choices.getOrNull(0)?.objOrNull()?.get("message")?.objOrNull()
+                ?: JsonObject(emptyMap())
+            val content = message.contentText()
+            val toolCalls = message["tool_calls"]?.arrOrNull() ?: JsonArray(emptyList())
+            val legacyCall = message["function_call"]?.objOrNull()
 
             if (toolCalls.isEmpty() && legacyCall == null) {
                 return AgentReply(text = content.trim().ifBlank { "Done." }, steps = steps, toolCalls = calls)
@@ -162,14 +170,22 @@ class Agent(
             val pending = ArrayList<Pair<String, String>>() // id -> name
             if (toolCalls.isNotEmpty()) {
                 for (element in toolCalls) {
-                    val call = element.jsonObject
-                    val function = call["function"]?.jsonObject ?: JsonObject(emptyMap())
-                    val id = call["id"]?.jsonPrimitive?.contentOrNull ?: "call_${calls.size}"
-                    val name = function["name"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                    val call = element.objOrNull() ?: continue
+                    val function = call["function"]?.objOrNull() ?: JsonObject(emptyMap())
+                    val id = call["id"].strOrNull() ?: "call_${calls.size}"
+                    val name = function["name"].strOrNull().orEmpty()
                     pending.add(id to name)
                 }
             } else if (legacyCall != null) {
-                pending.add("call_legacy" to legacyCall["name"]?.jsonPrimitive?.contentOrNull.orEmpty())
+                pending.add("call_legacy" to legacyCall["name"].strOrNull().orEmpty())
+            }
+
+            if (pending.isEmpty()) {
+                return AgentReply(
+                    text = content.trim().ifBlank { "The model returned an unreadable tool call." },
+                    steps = steps,
+                    toolCalls = calls
+                )
             }
 
             for ((id, rawName) in pending) {
@@ -184,13 +200,16 @@ class Agent(
                     )
                     continue
                 }
-                val rawArguments = pending.first { it.first == id }.let {
+                val rawArguments = if (legacyCall != null && id == "call_legacy") {
+                    legacyCall["arguments"].strOrNull()
+                } else {
                     toolCalls.firstOrNull { element ->
-                        element.jsonObject["id"]?.jsonPrimitive?.contentOrNull == id
-                    }?.jsonObject?.get("function")?.jsonObject?.get("arguments")?.jsonPrimitive?.contentOrNull
+                        element.objOrNull()?.get("id").strOrNull() == id
+                    }?.objOrNull()?.get("function")?.objOrNull()?.get("arguments").strOrNull()
                 } ?: "{}"
-                val arguments = runCatching { json.parseToJsonElement(rawArguments).jsonObject }
-                    .getOrElse { JsonObject(emptyMap()) }
+                val arguments = runCatching {
+                    json.parseToJsonElement(rawArguments) as? JsonObject
+                }.getOrNull() ?: JsonObject(emptyMap())
                 onEvent(AgentEvent("tool", name))
                 val result = registry.call(name, arguments)
                 calls.add(name)
@@ -289,16 +308,16 @@ class Agent(
 
     /** Turn tool protocol messages into plain text so a picky gateway accepts them. */
     private fun flattenToolTurns(message: JsonObject): JsonObject {
-        val role = message["role"]?.jsonPrimitive?.contentOrNull
+        val role = message["role"].strOrNull()
         if (role == "tool") {
-            val content = message["content"]?.jsonPrimitive?.contentOrNull.orEmpty()
+            val content = message["content"].strOrNull().orEmpty()
             return buildJsonObject {
                 put("role", "user")
                 put("content", "[tool output]\n$content")
             }
         }
         if (role == "assistant" && message.containsKey("tool_calls")) {
-            val content = message["content"]?.jsonPrimitive?.contentOrNull.orEmpty()
+            val content = message.contentText()
             return buildJsonObject {
                 put("role", "assistant")
                 put("content", content.ifBlank { "(tool call)" })

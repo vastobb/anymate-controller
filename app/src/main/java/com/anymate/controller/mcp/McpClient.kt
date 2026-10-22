@@ -1,5 +1,9 @@
 package com.anymate.controller.mcp
 
+import com.anymate.controller.arrOrNull
+import com.anymate.controller.objOrNull
+import com.anymate.controller.strOrNull
+
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -79,7 +83,7 @@ class McpClient(
                 .map { it.trimStart().removePrefix("data:").trim() }
                 .lastOrNull() ?: return null
         } else raw
-        return runCatching { json.parseToJsonElement(body).jsonObject }.getOrNull()
+        return runCatching { json.parseToJsonElement(body) as? JsonObject }.getOrNull()
     }
 
     private fun nextId(): Int {
@@ -95,11 +99,12 @@ class McpClient(
             params?.let { put("params", it) }
         }
         val response = post(payload) ?: throw McpException("Empty response for $method")
-        response["error"]?.let { error ->
-            val message = error.jsonObject["message"]?.jsonPrimitive?.contentOrNull ?: error.toString()
+        val error = response["error"]
+        if (error != null && error !is kotlinx.serialization.json.JsonNull) {
+            val message = error.objOrNull()?.get("message").strOrNull() ?: error.toString()
             throw McpException("$method failed: $message")
         }
-        return response["result"]?.jsonObject ?: JsonObject(emptyMap())
+        return response["result"]?.objOrNull() ?: JsonObject(emptyMap())
     }
 
     // ---- protocol ----------------------------------------------------------
@@ -124,11 +129,11 @@ class McpClient(
 
     suspend fun listTools(): List<McpToolInfo> = withContext(Dispatchers.IO) {
         val result = request("tools/list")
-        result["tools"]?.jsonArray?.map { element ->
-            val obj = element.jsonObject
+        result["tools"]?.arrOrNull()?.mapNotNull { element ->
+            val obj = element.objOrNull() ?: return@mapNotNull null
             McpToolInfo(
-                name = obj["name"]?.jsonPrimitive?.contentOrNull.orEmpty(),
-                description = obj["description"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                name = obj["name"].strOrNull().orEmpty(),
+                description = obj["description"].strOrNull().orEmpty(),
                 schema = obj["inputSchema"] as? JsonObject
             )
         } ?: emptyList()
@@ -142,26 +147,24 @@ class McpClient(
                 put("arguments", arguments)
             }
         )
-        val content = result["content"]?.jsonArray ?: JsonArray(emptyList())
+        val content = result["content"]?.arrOrNull() ?: JsonArray(emptyList())
         val text = content.mapNotNull { part ->
-            val obj = part.jsonObject
-            if (obj["type"]?.jsonPrimitive?.contentOrNull == "text") {
-                obj["text"]?.jsonPrimitive?.contentOrNull
-            } else null
+            val obj = part.objOrNull() ?: return@mapNotNull null
+            if (obj["type"].strOrNull() == "text") obj["text"].strOrNull() else null
         }.joinToString("\n")
         val image = content.firstOrNull { part ->
-            part.jsonObject["type"]?.jsonPrimitive?.contentOrNull == "image"
-        }?.jsonObject?.get("data")?.jsonPrimitive?.contentOrNull?.let { encoded ->
+            part.objOrNull()?.get("type").strOrNull() == "image"
+        }?.objOrNull()?.get("data").strOrNull()?.let { encoded ->
             runCatching { Base64.getDecoder().decode(encoded) }.getOrNull()
         }
-        val isError = result["isError"]?.jsonPrimitive?.contentOrNull == "true"
+        val isError = result["isError"].strOrNull() == "true"
         McpToolResult(text = text, image = image, isError = isError)
     }
 
     suspend fun snapshotPng(): ByteArray? = withContext(Dispatchers.IO) {
         val result = request("resources/read", buildJsonObject { put("uri", "anymate://preview/current") })
-        result["contents"]?.jsonArray?.firstOrNull()?.jsonObject
-            ?.get("blob")?.jsonPrimitive?.contentOrNull
+        result["contents"]?.arrOrNull()?.firstOrNull()?.objOrNull()
+            ?.get("blob").strOrNull()
             ?.let { runCatching { Base64.getDecoder().decode(it) }.getOrNull() }
     }
 
