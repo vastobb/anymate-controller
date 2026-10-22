@@ -73,6 +73,8 @@ class ControllerViewModel(app: Application) : AndroidViewModel(app) {
     var modelsError by mutableStateOf<String?>(null)
     var endpointTest by mutableStateOf<String?>(null)
     var endpointTesting by mutableStateOf(false)
+    var modelProbe by mutableStateOf<String?>(null)
+    var probeBusy by mutableStateOf(false)
         private set
     var files by mutableStateOf<List<String>>(emptyList())
         private set
@@ -297,6 +299,46 @@ class ControllerViewModel(app: Application) : AndroidViewModel(app) {
             }
             endpointTesting = false
             endpointTest = result.getOrElse { it.message ?: "The endpoint did not answer." }
+        }
+    }
+
+    /**
+     * Tries the catalog until a model answers. NVIDIA's hosted API lists models
+     * that the account is not entitled to call, so the first listed model is
+     * often not the first usable one.
+     */
+    fun findWorkingModel() {
+        if (modelEndpoint.isBlank() || apiKey.isBlank()) {
+            modelProbe = "Set the endpoint and API key first."
+            return
+        }
+        probeBusy = true
+        modelProbe = "Reading the model list…"
+        viewModelScope.launch {
+            val fetched = withContext(Dispatchers.IO) {
+                runCatching { ModelCatalog.fetch(modelEndpoint, apiKey) }
+            }
+            val list = fetched.getOrElse {
+                probeBusy = false
+                modelProbe = it.message ?: "Could not read the model list."
+                return@launch
+            }
+            models = list
+            modelProbe = "Probing up to 15 of ${list.size} models…"
+            val found = withContext(Dispatchers.IO) {
+                runCatching {
+                    ModelCatalog.findWorking(modelEndpoint, apiKey, list, maxProbes = 15)
+                }
+            }
+            probeBusy = false
+            found.onSuccess { working ->
+                updateAgentModel(working.model)
+                modelProbe = "Found ${working.model} — it answered after ${working.probes} " +
+                    "probe${if (working.probes == 1) "" else "s"}" +
+                    if (working.skipped > 0) " (${working.skipped} rejected)." else "."
+            }.onFailure {
+                modelProbe = it.message ?: "No model answered."
+            }
         }
     }
 

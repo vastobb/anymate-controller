@@ -309,21 +309,16 @@ class Agent(
 
     private fun isRecoverable(error: AgentException): Boolean {
         val text = (error.body + " " + error.message).lowercase()
+        // NVIDIA's "Function …: Not found for account …" is a model-entitlement
+        // problem, not a tool-protocol problem: retrying only wastes time.
+        if (text.contains("not found for account")) return false
+        if (text.contains("model") && text.contains("not found") && text.contains("account")) return false
         return error.status == 404 || error.status == 400 &&
             (text.contains("not found") || text.contains("function") || text.contains("tool"))
     }
 
-    private fun describe(error: AgentException): String {
-        val body = runCatching { json.parseToJsonElement(error.body).jsonObject } .getOrNull()
-        val detail = body?.get("error")?.jsonObject?.get("message")?.jsonPrimitive?.contentOrNull
-            ?: body?.get("detail")?.jsonPrimitive?.contentOrNull
-            ?: error.body.take(240)
-        val hint = if (error.status == 404 && detail.contains("function", true)) {
-            "\nThe endpoint rejected the tool protocol. This is usually a gateway that expects a " +
-                "different tool-call format — the controller has already retried in plain-text mode."
-        } else ""
-        return "Model endpoint error (${error.status}): $detail$hint"
-    }
+    private fun describe(error: AgentException): String =
+        ModelCatalog.explain(error.status, chatUrl(), error.body, model)
 
     companion object {
         val SYSTEM_PROMPT = """

@@ -508,6 +508,23 @@ private fun SettingsPane(vm: ControllerViewModel) {
         }
 
         SectionTitle("AI agent")
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            SmallButton(label = "OpenAI", onClick = {
+                applyEndpointPreset(vm, "https://api.openai.com/v1", "gpt-4o-mini")
+            })
+            SmallButton(label = "NVIDIA", onClick = {
+                applyEndpointPreset(vm, "https://integrate.api.nvidia.com/v1", "meta/llama-3.1-8b-instruct")
+            })
+            SmallButton(label = "OpenRouter", onClick = {
+                applyEndpointPreset(vm, "https://openrouter.ai/api/v1", "openai/gpt-4o-mini")
+            })
+            SmallButton(label = "Groq", onClick = {
+                applyEndpointPreset(vm, "https://api.groq.com/openai/v1", "llama-3.3-70b-versatile")
+            })
+            SmallButton(label = "Ollama", onClick = {
+                applyEndpointPreset(vm, "http://127.0.0.1:11434/v1", "llama3.2")
+            })
+        }
         SettingField(
             label = "Endpoint",
             value = vm.modelEndpoint,
@@ -545,10 +562,32 @@ private fun SettingsPane(vm: ControllerViewModel) {
             Spacer(Modifier.width(8.dp))
             Text("Send tool images back to the model (vision)", color = TextSecondary, fontSize = 12.sp)
         }
+        if (com.anymate.controller.agent.ModelCatalog.isNvidia(vm.modelEndpoint)) {
+            Text(
+                "NVIDIA lists every model on /v1/models, but chat only works for models your " +
+                    "organisation is entitled to. If a model returns \"Function … not found for " +
+                    "account\", press Find working model.",
+                color = TextMuted,
+                fontSize = 10.sp,
+                lineHeight = 15.sp
+            )
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             SmallButton(label = "Fetch models", icon = Icons.Rounded.Refresh, onClick = { vm.fetchModels() })
+            SmallButton(label = "Find working model", icon = Icons.Rounded.Bolt, onClick = { vm.findWorkingModel() })
             SmallButton(label = "Test endpoint", icon = Icons.Rounded.NetworkCheck, onClick = { vm.testEndpoint() })
             SmallButton(label = "Save agent settings", onClick = { vm.saveSettings() })
+        }
+        if (vm.probeBusy) {
+            Text("Probing models…", color = TextMuted, fontSize = 11.sp)
+        }
+        vm.modelProbe?.let {
+            Text(
+                it,
+                color = if (it.startsWith("Found")) Success else Amber,
+                fontSize = 11.sp,
+                lineHeight = 16.sp
+            )
         }
         if (vm.modelsLoading) {
             Text("Fetching models…", color = TextMuted, fontSize = 11.sp)
@@ -744,6 +783,13 @@ private fun ModelChip(vm: ControllerViewModel) {
                     vm.fetchModels()
                 }
             )
+            androidx.compose.material3.DropdownMenuItem(
+                text = { Text("Find a working model", color = TextPrimary, fontSize = 12.sp) },
+                onClick = {
+                    open = false
+                    vm.findWorkingModel()
+                }
+            )
             vm.models.forEach { model ->
                 androidx.compose.material3.DropdownMenuItem(
                     text = { Text(model, color = TextSecondary, fontSize = 11.sp, fontFamily = Mono) },
@@ -864,3 +910,9 @@ private fun LiveDot() {
     Box(Modifier.size(6.dp).clip(CircleShape).background(Success))
 }
 
+
+
+private fun applyEndpointPreset(vm: ControllerViewModel, url: String, model: String) {
+    vm.modelEndpoint = url
+    if (vm.modelName.isBlank() || !vm.modelName.contains("/")) vm.modelName = model
+}
