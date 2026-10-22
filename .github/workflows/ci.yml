@@ -40,7 +40,15 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: Unit tests
-        run: ./gradlew --no-daemon :app:testDebugUnitTest
+        run: ./gradlew --no-daemon :app:testDebugUnitTest --info
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-reports
+          path: app/build/test-results/testDebugUnitTest/
+          if-no-files-found: ignore
 
       - name: Build APKs
         run: ./gradlew --no-daemon :app:assembleDebug :app:assembleRelease
