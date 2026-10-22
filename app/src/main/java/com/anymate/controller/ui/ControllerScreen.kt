@@ -31,6 +31,8 @@ import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.FolderOpen
+import androidx.compose.material.icons.rounded.Image
+import androidx.compose.material.icons.rounded.Movie
 import androidx.compose.material.icons.rounded.Hub
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Terminal
@@ -165,6 +167,8 @@ fun ControllerScreen(vm: ControllerViewModel) {
                     fontFamily = Mono,
                     modifier = Modifier.weight(1f)
                 )
+                ModelChip(vm)
+                Spacer(Modifier.width(8.dp))
                 Text(
                     "${vm.registry.all().size} tools",
                     color = TextMuted,
@@ -201,6 +205,7 @@ fun ControllerScreen(vm: ControllerViewModel) {
 private fun ChatPane(vm: ControllerViewModel) {
     val listState = rememberLazyListState()
     var input by remember { mutableStateOf("") }
+    var picker by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(vm.chat.size, vm.thinking) {
         if (vm.chat.isNotEmpty()) {
@@ -217,6 +222,50 @@ private fun ChatPane(vm: ControllerViewModel) {
         ) {
             items(vm.chat, key = { it.id }) { line -> ChatRow(line) }
         }
+        if (vm.attachments.isNotEmpty()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                vm.attachments.forEachIndexed { index, attachment ->
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Ink800)
+                            .border(1.dp, Hairline, RoundedCornerShape(10.dp))
+                            .clickable { vm.removeAttachment(index) }
+                            .padding(horizontal = 9.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Rounded.Image, null, tint = Cyan, modifier = Modifier.size(12.dp))
+                        Spacer(Modifier.width(5.dp))
+                        Text(
+                            attachment.label.take(18),
+                            color = TextSecondary,
+                            fontSize = 10.sp
+                        )
+                    }
+                }
+                Spacer(Modifier.weight(1f))
+                SmallButton(label = "Clear", onClick = vm::clearAttachments)
+            }
+            Spacer(Modifier.height(6.dp))
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            SmallButton(label = "Image", icon = Icons.Rounded.Image, onClick = { picker = "image" })
+            SmallButton(label = "Video", icon = Icons.Rounded.Movie, onClick = { picker = "video" })
+            SmallButton(label = "Canvas", icon = Icons.Rounded.Hub, onClick = { vm.attachCanvas() })
+        }
+        Spacer(Modifier.height(6.dp))
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -249,6 +298,10 @@ private fun ChatPane(vm: ControllerViewModel) {
                 )
             }
         }
+    }
+
+    picker?.let { kind ->
+        FilePickerDialog(vm, kind) { picker = null }
     }
 }
 
@@ -490,7 +543,39 @@ private fun SettingsPane(vm: ControllerViewModel) {
             Spacer(Modifier.width(8.dp))
             Text("Send tool images back to the model (vision)", color = TextSecondary, fontSize = 12.sp)
         }
-        SmallButton(label = "Save agent settings", onClick = { vm.saveSettings() })
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            SmallButton(label = "Fetch models", icon = Icons.Rounded.Refresh, onClick = { vm.fetchModels() })
+            SmallButton(label = "Save agent settings", onClick = { vm.saveSettings() })
+        }
+        if (vm.modelsLoading) {
+            Text("Fetching models…", color = TextMuted, fontSize = 11.sp)
+        }
+        vm.modelsError?.let {
+            Text(it, color = Danger, fontSize = 11.sp, lineHeight = 16.sp)
+        }
+        if (vm.models.isNotEmpty()) {
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth().height(160.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                items(vm.models) { model ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { vm.updateAgentModel(model) }
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (model == vm.modelName) {
+                            Icon(Icons.Rounded.AutoAwesome, null, tint = Cyan, modifier = Modifier.size(12.dp))
+                            Spacer(Modifier.width(6.dp))
+                        }
+                        Text(model, color = TextSecondary, fontSize = 11.sp, fontFamily = Mono)
+                    }
+                }
+            }
+        }
 
         SectionTitle("Toolbox")
         vm.registry.groups().forEach { (group, tools) ->
@@ -549,6 +634,106 @@ private fun PreviewPane(vm: ControllerViewModel, modifier: Modifier = Modifier) 
                 )
             } else {
                 Text("waiting for the phone…", color = TextMuted, fontSize = 11.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun FilePickerDialog(
+    vm: ControllerViewModel,
+    kind: String,
+    onDismiss: () -> Unit
+) {
+    val extensions = if (kind == "video") setOf("mp4", "mov", "mkv", "webm", "3gp", "avi") else setOf("png", "jpg", "jpeg", "webp", "bmp")
+    val files = vm.files.filter { path ->
+        val extension = path.substringAfterLast('.', "").lowercase()
+        extension in extensions
+    }
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        androidx.compose.material3.Surface(
+            shape = RoundedCornerShape(18.dp),
+            color = Ink850,
+            border = androidx.compose.foundation.BorderStroke(1.dp, Hairline),
+            modifier = Modifier.width(420.dp)
+        ) {
+            Column(Modifier.padding(16.dp)) {
+                Text(
+                    if (kind == "video") "Attach a video" else "Attach an image",
+                    color = TextPrimary,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(Modifier.height(10.dp))
+                if (files.isEmpty()) {
+                    Text(
+                        "No ${kind} files in the workspace yet. Put one there with the console or the Files tab.",
+                        color = TextMuted,
+                        fontSize = 11.sp,
+                        lineHeight = 16.sp
+                    )
+                } else {
+                    LazyColumn(Modifier.height(280.dp)) {
+                        items(files) { path ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable {
+                                        if (kind == "video") vm.attachVideo(path) else vm.attachImage(path)
+                                        onDismiss()
+                                    }
+                                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    if (kind == "video") Icons.Rounded.Movie else Icons.Rounded.Image,
+                                    null,
+                                    tint = TextMuted,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(path, color = TextSecondary, fontSize = 11.sp, fontFamily = Mono)
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                SmallButton(label = "Close", onClick = onDismiss)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ModelChip(vm: ControllerViewModel) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        SmallButton(
+            label = vm.modelName.ifBlank { "model" },
+            icon = Icons.Rounded.AutoAwesome,
+            onClick = { open = true }
+        )
+        androidx.compose.material3.DropdownMenu(
+            expanded = open,
+            onDismissRequest = { open = false },
+            modifier = Modifier.background(Ink800)
+        ) {
+            androidx.compose.material3.DropdownMenuItem(
+                text = { Text("Fetch models from the endpoint", color = TextPrimary, fontSize = 12.sp) },
+                onClick = {
+                    open = false
+                    vm.fetchModels()
+                }
+            )
+            vm.models.forEach { model ->
+                androidx.compose.material3.DropdownMenuItem(
+                    text = { Text(model, color = TextSecondary, fontSize = 11.sp, fontFamily = Mono) },
+                    onClick = {
+                        vm.updateAgentModel(model)
+                        open = false
+                    }
+                )
             }
         }
     }

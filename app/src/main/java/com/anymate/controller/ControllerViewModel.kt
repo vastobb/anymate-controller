@@ -12,6 +12,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.anymate.controller.agent.Agent
 import com.anymate.controller.agent.AgentEvent
+import com.anymate.controller.agent.Attachment
+import com.anymate.controller.agent.ModelCatalog
 import com.anymate.controller.mcp.McpClient
 import com.anymate.controller.tools.AnimTools
 import com.anymate.controller.tools.AnyMateTools
@@ -21,6 +23,7 @@ import com.anymate.controller.tools.ShellLite
 import com.anymate.controller.tools.ShellResult
 import com.anymate.controller.tools.ToolRegistry
 import com.anymate.controller.tools.ToolResult
+import com.anymate.controller.tools.TraceTools
 import com.anymate.controller.tools.VideoTools
 import com.anymate.controller.tools.boolOr
 import com.anymate.controller.tools.doubleOr
@@ -64,6 +67,10 @@ class ControllerViewModel(app: Application) : AndroidViewModel(app) {
     var preview by mutableStateOf<ImageBitmap?>(null)
         private set
     var consoleText by mutableStateOf("")
+    var attachments by mutableStateOf<List<Attachment>>(emptyList())
+    var models by mutableStateOf<List<String>>(emptyList())
+    var modelsLoading by mutableStateOf(false)
+    var modelsError by mutableStateOf<String?>(null)
         private set
     var files by mutableStateOf<List<String>>(emptyList())
         private set
@@ -137,7 +144,10 @@ class ControllerViewModel(app: Application) : AndroidViewModel(app) {
     fun send(text: String) {
         val prompt = text.trim()
         if (prompt.isEmpty() || thinking) return
-        chat.add(ChatLine(++chatId, LineRole.USER, prompt))
+        val pending = attachments
+        attachments = emptyList()
+        val label = if (pending.isEmpty()) prompt else prompt + "\n" + pending.joinToString("\n") { "[attached: ${it.label}]" }
+        chat.add(ChatLine(++chatId, LineRole.USER, label))
         thinking = true
         status = "Thinking…"
         agentJob = viewModelScope.launch {
@@ -149,7 +159,7 @@ class ControllerViewModel(app: Application) : AndroidViewModel(app) {
                     registry = registry,
                     sendImages = sendImages
                 )
-                val reply = agent.run(prompt) { event: AgentEvent ->
+                val reply = agent.run(prompt, pending) { event: AgentEvent ->
                     when (event.kind) {
                         "tool" -> {
                             status = "Running ${event.label}"
@@ -177,6 +187,93 @@ class ControllerViewModel(app: Application) : AndroidViewModel(app) {
         agentJob = null
         thinking = false
         status = "Stopped"
+    }
+
+    // ---- attachments ------------------------------------------------------
+    fun attachImage(path: String) {
+        viewModelScope.launch {
+            val file = java.io.File(path).let { if (it.isAbsolute) it else java.io.File(workspace, path) }
+            if (!file.exists()) {
+                notify("'$path' does not exist.")
+                return@launch
+            }
+            val bytes = withContext(Dispatchers.IO) { file.readBytes() }
+            attachments = attachments + Attachment(bytes, "image/png", file.name)
+        }
+    }
+
+    fun attachVideo(path: String) {
+        viewModelScope.launch {
+            val file = java.io.File(path).let { if (it.isAbsolute) it else java.io.File(workspace, path) }
+            if (!file.exists()) {
+                notify("'$path' does not exist.")
+                return@launch
+            }
+            val frames = withContext(Dispatchers.IO) {
+                com.anymate.controller.tools.VideoTools.extractFrameFiles(
+                    file, java.io.File(workspace, "frames_" + file.nameWithoutExtension), 6, 8
+                )
+            }
+            if (frames.isEmpty()) {
+                notify("No frames could be read from '${file.name}'.")
+                return@launch
+            }
+            val added = frames.map { frame ->
+                Attachment(frame.readBytes(), "image/png", frame.name)
+            }
+            attachments = attachments + added
+            notify("Attached ${added.size} frames from '${file.name}'.")
+        }
+    }
+
+    fun attachCanvas() {
+        viewModelScope.launch {
+            val bytes = withContext(Dispatchers.IO) {
+                runCatching { mcpClient().snapshotPng() }.getOrNull()
+            }
+            if (bytes == null) {
+                notify("The phone is not reachable — connect it first.")
+            } else {
+                attachments = attachments + Attachment(bytes, "image/png", "anymate-canvas")
+            }
+        }
+    }
+
+    fun removeAttachment(index: Int) {
+        attachments = attachments.filterIndexed { i, _ -> i != index }
+    }
+
+    fun clearAttachments() {
+        attachments = emptyList()
+    }
+
+    // ---- models -----------------------------------------------------------
+    fun fetchModels() {
+        if (modelEndpoint.isBlank()) {
+            modelsError = "Set an endpoint first."
+            return
+        }
+        modelsLoading = true
+        modelsError = null
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching { ModelCatalog.fetch(modelEndpoint, apiKey) }
+            }
+            result.onSuccess {
+                models = it
+                modelsLoading = false
+                if (it.isEmpty()) modelsError = "The endpoint returned no models."
+                else if (modelName !in it) updateAgentModel(it.first())
+            }.onFailure {
+                modelsLoading = false
+                modelsError = it.message ?: "Could not fetch models."
+            }
+        }
+    }
+
+    fun updateAgentModel(name: String) {
+        modelName = name
+        prefs.edit().putString("model.name", name).apply()
     }
 
     // ---- console -----------------------------------------------------------
@@ -482,5 +579,6 @@ class ControllerViewModel(app: Application) : AndroidViewModel(app) {
 
         FileTools.register(registry, workspace)
         AnyMateTools.register(registry, { mcpClient() }, workspace)
+        TraceTools.register(registry, { mcpClient() }, workspace)
     }
 }

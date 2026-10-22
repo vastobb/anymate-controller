@@ -221,10 +221,17 @@ object VideoTools {
     fun extractFrames(path: String, outputDir: String, fps: Int, count: Int): ToolResult {
         val file = File(path)
         if (!file.exists()) return ToolResult(text = "'$path' does not exist.", ok = false)
+        val written = extractFrameFiles(file, File(outputDir), fps, count)
+        if (written.isEmpty()) return ToolResult(text = "Could not extract frames from '$path'.", ok = false)
+        return ToolResult(text = "Extracted ${written.size} frames to ${written[0].parentFile?.name}")
+    }
+
+    /** Samples a video into PNG frames and returns the written files. */
+    fun extractFrameFiles(file: File, directory: File, fps: Int, count: Int): List<File> {
+        if (!file.exists()) return emptyList()
         val retriever = MediaMetadataRetriever()
-        val directory = File(outputDir)
         directory.mkdirs()
-        val written = mutableListOf<String>()
+        val written = ArrayList<File>()
         return try {
             retriever.setDataSource(file.absolutePath)
             val duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0
@@ -236,15 +243,15 @@ object VideoTools {
                 if (frame != null) {
                     val target = File(directory, "frame_%04d.png".format(index + 1))
                     target.outputStream().use { frame.compress(Bitmap.CompressFormat.PNG, 95, it) }
-                    written.add(target.absolutePath)
+                    written.add(target)
                     frame.recycle()
                     index++
                 }
                 time += step
             }
-            ToolResult(text = "Extracted ${written.size} frames to ${directory.absolutePath}")
+            written
         } catch (t: Throwable) {
-            ToolResult(text = "Could not extract frames: ${t.message}", ok = false)
+            written
         } finally {
             runCatching { retriever.release() }
         }
