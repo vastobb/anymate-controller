@@ -123,14 +123,14 @@ class Agent(
                     // The provider does not like our tool protocol: flatten the
                     // tool turns into plain text and try again.
                     sanitized = true
-                    messages.replaceAll { flattenToolTurns(it) }
+                    for (i in messages.indices) messages[i] = flattenToolTurns(messages[i])
                     continue
                 }
                 if (!droppedTools && isRecoverable(error)) {
                     // Still unhappy: continue without tools at all.
                     droppedTools = true
                     sanitized = true
-                    messages.replaceAll { flattenToolTurns(it) }
+                    for (i in messages.indices) messages[i] = flattenToolTurns(messages[i])
                     continue
                 }
                 return AgentReply(steps = steps, toolCalls = calls, error = describe(error))

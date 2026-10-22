@@ -189,6 +189,11 @@ class ControllerViewModel(app: Application) : AndroidViewModel(app) {
         status = "Stopped"
     }
 
+    /** Small user-facing note in the chat. */
+    private fun notify(message: String) {
+        chat.add(ChatLine(++chatId, LineRole.TOOL, message))
+    }
+
     // ---- attachments ------------------------------------------------------
     fun attachImage(path: String) {
         viewModelScope.launch {

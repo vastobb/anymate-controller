@@ -291,7 +291,7 @@ object TraceTools {
      * Traces a picture into polylines: grayscale -> blur -> Sobel -> edge mask
      * -> contour walk -> Douglas-Peucker simplification.
      */
-    fun traceStrokes(bitmap: Bitmap, detail: String): List<List<Pt>> {
+    private fun traceStrokes(bitmap: Bitmap, detail: String): List<List<Pt>> {
         val maxWidth = when (detail.lowercase()) {
             "easy" -> 220
             "detailed" -> 420
@@ -384,27 +384,30 @@ object TraceTools {
         h: Int,
         start: Int
     ): MutableList<Pt> {
-        val offsets = intArrayOf(1, w + 1, w, w - 1, -1, -w - 1, -w, -w + 1)
+        val dx = intArrayOf(1, 1, 0, -1, -1, -1, 0, 1)
+        val dy = intArrayOf(0, 1, 1, 1, 0, -1, -1, -1)
         val contour = ArrayList<Pt>()
-        var current = start
+        var x = start % w
+        var y = start / w
         var direction = 0
         visited[start] = true
-        contour.add(Pt((start % w).toFloat(), (start / w).toFloat()))
+        contour.add(Pt(x.toFloat(), y.toFloat()))
         var guard = 0
         while (guard++ < 20000) {
             var found = false
             for (step in 1..8) {
                 val nextDirection = (direction + step) % 8
-                val nx = current % w + offsets[nextDirection] % w
-                val ny = current / w + offsets[nextDirection] / w
+                val nx = x + dx[nextDirection]
+                val ny = y + dy[nextDirection]
                 if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue
                 val index = ny * w + nx
                 if (!edges[index]) continue
                 if (index == start) return contour
-                current = index
+                x = nx
+                y = ny
                 direction = nextDirection
                 visited[index] = true
-                contour.add(Pt(nx.toFloat(), ny.toFloat()))
+                contour.add(Pt(x.toFloat(), y.toFloat()))
                 found = true
                 break
             }
