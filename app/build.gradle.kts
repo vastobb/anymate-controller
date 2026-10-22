@@ -13,8 +13,8 @@ android {
         applicationId = "com.anymate.controller"
         minSdk = 26
         targetSdk = 35
-        versionCode = 125
-        versionName = "1.2.5"
+        versionCode = 126
+        versionName = "1.2.6"
         vectorDrawables { useSupportLibrary = true }
     }
 
@@ -32,11 +32,31 @@ android {
         jvmTarget = "17"
     }
 
+    // A committed key keeps release signatures stable across CI runs, so a new
+    // build installs over the previous APK instead of failing with
+    // "App not installed". Debug builds still use the debug key.
+    val releaseKey = rootProject.file("signing/anymate-controller-release.p12")
+    signingConfigs {
+        if (releaseKey.exists()) {
+            create("release") {
+                storeFile = releaseKey
+                storeType = "PKCS12"
+                storePassword = "anymate-release-2026"
+                keyAlias = "anymate-controller"
+                keyPassword = "anymate-release-2026"
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (releaseKey.exists()) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
     }
 

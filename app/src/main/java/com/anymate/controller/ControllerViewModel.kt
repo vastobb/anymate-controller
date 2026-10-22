@@ -258,7 +258,12 @@ class ControllerViewModel(app: Application) : AndroidViewModel(app) {
                 return@launch
             }
             val encoded = withContext(Dispatchers.IO) { encodeForVision(uri) }
-            val bytes = encoded?.first ?: file.readBytes()
+            val bytes = encoded?.first
+                ?: withContext(Dispatchers.IO) { runCatching { file.readBytes() }.getOrNull() }
+                ?: run {
+                    notify("Could not read that image.")
+                    return@launch
+                }
             val mime = encoded?.second ?: (resolver.getType(uri) ?: "image/png")
             attachments = attachments + Attachment(
                 bytes, mime, file.name, file.relativeTo(workspace).path

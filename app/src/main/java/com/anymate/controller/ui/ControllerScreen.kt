@@ -277,18 +277,23 @@ private fun ChatPane(vm: ControllerViewModel) {
                 label = "Gallery",
                 icon = Icons.Rounded.Image,
                 onClick = {
-                    imagePicker.launch(
-                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                    )
+                    // Devices without a photo picker fall back to the workspace list.
+                    runCatching {
+                        imagePicker.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                        )
+                    }.onFailure { picker = "files" }
                 }
             )
             SmallButton(
                 label = "Video",
                 icon = Icons.Rounded.Movie,
                 onClick = {
-                    videoPicker.launch(
-                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)
-                    )
+                    runCatching {
+                        videoPicker.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)
+                        )
+                    }.onFailure { picker = "files" }
                 }
             )
             SmallButton(label = "Canvas", icon = Icons.Rounded.Hub, onClick = { vm.attachCanvas() })
