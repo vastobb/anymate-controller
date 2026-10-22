@@ -65,6 +65,7 @@ import com.anymate.controller.ChatLine
 import com.anymate.controller.ControllerViewModel
 import com.anymate.controller.LineRole
 import com.anymate.controller.ui.theme.AccentGradient
+import com.anymate.controller.ui.theme.Amber
 import com.anymate.controller.ui.theme.Cyan
 import com.anymate.controller.ui.theme.Danger
 import com.anymate.controller.ui.theme.Hairline
