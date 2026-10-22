@@ -62,11 +62,11 @@ class GifEncoder(
     private val out: OutputStream,
     private val width: Int,
     private val height: Int,
-    paletteColors: IntArray,
     fps: Int,
     loop: Boolean = true
 ) {
-    private val palette: IntArray = paletteColors.copyOf(256)
+    /** A 6-7-6 colour cube plus a grey ramp: plenty for flat animation art. */
+    private val palette: IntArray = buildPalette()
     private val delayCs: Int = max(1, (100.0 / fps.coerceAtLeast(1)).roundToInt())
     private val lut: IntArray = IntArray(32768)
     private var framesWritten = 0
@@ -249,6 +249,23 @@ class GifEncoder(
             offset += size
         }
         out.write(0)
+    }
+
+    private fun buildPalette(): IntArray {
+        val colors = IntArray(256)
+        var index = 0
+        for (r in 0 until 6) {
+            for (g in 0 until 7) {
+                for (b in 0 until 6) {
+                    colors[index++] = (r * 51 shl 16) or (g * 42 shl 8) or (b * 51)
+                }
+            }
+        }
+        while (index < 256) {
+            val value = (index - 252) * 8
+            colors[index++] = (value shl 16) or (value shl 8) or value
+        }
+        return colors
     }
 
     private fun writeShort(value: Int) {

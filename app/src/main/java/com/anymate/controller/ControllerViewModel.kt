@@ -230,6 +230,7 @@ class ControllerViewModel(app: Application) : AndroidViewModel(app) {
                     .map { it.relativeTo(workspace).path }
                     .sorted()
                     .take(300)
+                    .toList()
             }
             files = list
         }

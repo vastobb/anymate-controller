@@ -21,8 +21,8 @@ object AnimTools {
         "ease-out" to { 1f - (1f - it) * (1f - it) },
         "ease-in-out" to { it * it * (3f - 2f * it) },
         "sine" to { 0.5f - 0.5f * Math.cos(Math.PI.toFloat() * it).toFloat() },
-        "expo-in" to { if (it == 0f) 0f else Math.pow(2.0, 10.0 * (it - 1f)).toFloat() },
-        "expo-out" to { if (it == 1f) 1f else 1f - Math.pow(2.0, -10.0 * it).toFloat() },
+        "expo-in" to { if (it == 0f) 0f else Math.pow(2.0, 10.0 * (it - 1f).toDouble()).toFloat() },
+        "expo-out" to { if (it == 1f) 1f else 1f - Math.pow(2.0, -10.0 * it.toDouble()).toFloat() },
         "back-out" to { 1f + 2.70158f * Math.pow((it - 1f).toDouble(), 3.0).toFloat() + 1.70158f * (it - 1f) * (it - 1f) },
         "bounce" to { bounce(it) },
         "elastic-out" to { elastic(it) }
@@ -53,7 +53,7 @@ object AnimTools {
         if (t == 0f || t == 1f) return t
         val c = (2f * Math.PI.toFloat()) / 3f
         return (Math.pow(2.0, (-10f * t).toDouble()).toFloat() *
-                Math.sin(((t * 10f) - 0.75f) * c).toFloat()) + 1f
+                Math.sin((((t * 10f) - 0.75f) * c).toDouble()).toFloat()) + 1f
     }
 
     fun parseColor(value: String?, fallback: Int = Color.WHITE): Int {
@@ -114,7 +114,7 @@ object AnimTools {
         return (0 until steps).map { curve(it.toFloat() / (steps - 1)) }
     }
 
-    fun timing(fps: Int, seconds: Float, style: String, hold: Int): JsonObject {
+    fun timing(fps: Int, seconds: Double, style: String, hold: Int): JsonObject {
         val total = (fps * seconds.coerceAtLeast(0.1f)).toInt().coerceAtLeast(1)
         val holds = if (style == "on-twos") hold.coerceAtLeast(1) else 1
         return buildJsonObject {

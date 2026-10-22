@@ -73,7 +73,12 @@ object Presets {
         width: Double = 4.0,
         layer: Int = 0
     ): JsonObject = buildJsonObject {
-        put("points", JsonArray(points.map { listOf(it.first, it.second) }))
+        put(
+            "points",
+            JsonArray(points.map { point ->
+                JsonArray(listOf(JsonPrimitive(point.first), JsonPrimitive(point.second)))
+            })
+        )
         put("color", color)
         put("width", width)
         put("tool", "pen")
@@ -188,7 +193,12 @@ object Presets {
                 }
                 frame.add(
                     buildJsonObject {
-                        put("points", JsonArray(points))
+                        put(
+                            "points",
+                            JsonArray(points.map { point ->
+                                JsonArray(listOf(JsonPrimitive(point[0]), JsonPrimitive(point[1])))
+                            })
+                        )
                         put("closed", true)
                         put("stroke_color", if (sides == 3) accent else accent2)
                         if (sides == 3) put("fill_color", accent)

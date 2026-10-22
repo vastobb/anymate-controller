@@ -633,7 +633,7 @@ object PythonLite {
                     next()
                     if (peek().text == ")") {
                         next()
-                        TupleLit(emptyList())
+                        return TupleLit(emptyList())
                     } else {
                         val first = parseExpression()
                         if (peek().type == T.OP && peek().text == ",") {
@@ -655,7 +655,7 @@ object PythonLite {
                     next()
                     if (peek().text == "]") {
                         next()
-                        ListLit(emptyList())
+                        return ListLit(emptyList())
                     }
                     val first = parseExpression()
                     if (peek().type == T.OP && peek().text == "for") {
@@ -681,7 +681,7 @@ object PythonLite {
                     next()
                     if (peek().text == "}") {
                         next()
-                        DictLit(emptyList())
+                        return DictLit(emptyList())
                     }
                     val key = parseExpression()
                     if (peek().type == T.OP && peek().text == ":") {
@@ -1413,12 +1413,12 @@ object PythonLite {
                 "min" to Builtin("min") { args, _ ->
                     val items = iterate(args[0])
                     if (items.isEmpty()) throw PyError("min() of an empty sequence")
-                    items.minWithOrNull(compareValues { a, b -> compare(a, b) })!!
+                    items.minWithOrNull { a, b -> compare(a, b) }!!
                 },
                 "max" to Builtin("max") { args, _ ->
                     val items = iterate(args[0])
                     if (items.isEmpty()) throw PyError("max() of an empty sequence")
-                    items.maxWithOrNull(compareValues { a, b -> compare(a, b) })!!
+                    items.maxWithOrNull { a, b -> compare(a, b) }!!
                 },
                 "abs" to Builtin("abs") { args, _ -> abs(asNumber(args[0])) },
                 "round" to Builtin("round") { args, _ ->
@@ -1429,7 +1429,7 @@ object PythonLite {
                 },
                 "sorted" to Builtin("sorted") { args, _ ->
                     val items = iterate(args[0]).toMutableList()
-                    items.sortWith(compareValues { a, b -> compare(a, b) })
+                    items.sortWith { a, b -> compare(a, b) }
                     items
                 },
                 "reversed" to Builtin("reversed") { args, _ -> iterate(args[0]).reversed().toMutableList() },

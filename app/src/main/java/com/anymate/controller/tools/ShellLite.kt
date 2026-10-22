@@ -194,7 +194,7 @@ object ShellLite {
             )
             "clear" -> ShellResult(stdout = "\u000c")
             "stat" -> stat(workspace, args)
-            "du" -> ShellResult(stdout = du(workspace, args))
+            "du" -> ShellResult(stdout = du(workspace, args).stdout)
             "python", "py" -> PythonLite.run(workspace, args.joinToString(" "))
             "mcp" -> ShellResult(stderr = "Use the Console tab to call phone tools, or the Chat tab.\n")
             else -> ShellResult(stderr = "unknown command: $command\n", exitCode = 127)
@@ -212,7 +212,8 @@ object ShellLite {
             stdout = entries.joinToString("\n") { entry ->
                 if (long) {
                     val size = if (entry.isDirectory) "-" else entry.length().toString()
-                    "$size\t${if (entry.isDirectory) "d" else "-"} ${entry.name}"
+                    val marker = if (entry.isDirectory) "d" else "-"
+                    "$size\t$marker ${entry.name}"
                 } else {
                     entry.name + if (entry.isDirectory) "/" else ""
                 }

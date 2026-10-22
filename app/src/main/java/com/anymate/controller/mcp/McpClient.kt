@@ -60,7 +60,7 @@ class McpClient(
         return try {
             connection.outputStream.use { it.write(payload.toString().toByteArray()) }
             val status = connection.responseCode
-            connection.headerFields["Mcp-Session-Id"]?.let { sessionId = it }
+            connection.headerFields["Mcp-Session-Id"]?.firstOrNull()?.let { sessionId = it }
             val stream = if (status in 200..299) connection.inputStream else connection.errorStream
             val text = stream?.bufferedReader()?.use(BufferedReader::readText).orEmpty()
             if (status !in 200..299) {
