@@ -141,7 +141,16 @@ object ShellLite {
         val resolved = if (candidate.isAbsolute) candidate.canonicalFile
         else File(workspace, raw).canonicalFile
         val root = workspace.canonicalFile
-        return if (resolved == root || root in resolved.parents) resolved else null
+        return if (isInside(root, resolved)) resolved else null
+    }
+
+    private fun isInside(root: File, candidate: File): Boolean {
+        var current: File? = candidate
+        while (current != null) {
+            if (current == root) return true
+            current = current.parentFile
+        }
+        return false
     }
 
     // ---- execution --------------------------------------------------------

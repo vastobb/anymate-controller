@@ -295,7 +295,7 @@ object AnyMateTools {
             "phone"
         ) { args ->
             val arguments = buildJsonObject {
-                args["frame"]?.let { if (it.toIntOrNull() ?: -1) >= 0) put("frame", it.toInt()) }
+                args["frame"]?.let { if ((it.toIntOrNull() ?: -1) >= 0) put("frame", it.toInt()) }
                 put("max_size", args["max_size"]?.toIntOrNull() ?: 768)
             }
             call("anymate_snapshot", arguments)
