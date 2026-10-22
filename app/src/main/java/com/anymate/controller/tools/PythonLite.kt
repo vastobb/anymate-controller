@@ -607,7 +607,7 @@ object PythonLite {
 
         private fun parsePrimary(): Expr {
             val token = peek()
-            return when {
+            val result: Expr = when {
                 token.type == T.NUMBER -> {
                     next(); Num(token.num ?: 0.0)
                 }
@@ -711,6 +711,7 @@ object PythonLite {
                 }
                 else -> throw PyError("unexpected token '${token.text}' (line ${token.line})")
             }
+            return result
         }
 
         private fun splitFString(raw: String): List<Any> {
@@ -1312,7 +1313,7 @@ object PythonLite {
                 if (at < 0) throw PyError("value not in list") else at
             }
             "count" -> Builtin("count") { args, _ -> list.count { pyEquals(it, args[0]) } }
-            "sort" -> Builtin("sort") { _, _ -> list.sortWith(compareValues { a, b -> compare(a, b) }); null }
+            "sort" -> Builtin("sort") { _, _ -> list.sortWith { a, b -> compare(a, b) }; null }
             "reverse" -> Builtin("reverse") { _, _ -> list.reverse(); null }
             "clear" -> Builtin("clear") { _, _ -> list.clear(); null }
             else -> throw PyError("list has no method '$name'")

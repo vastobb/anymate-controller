@@ -20,7 +20,7 @@ object AnimTools {
         "ease-in" to { it * it },
         "ease-out" to { 1f - (1f - it) * (1f - it) },
         "ease-in-out" to { it * it * (3f - 2f * it) },
-        "sine" to { 0.5f - 0.5f * Math.cos(Math.PI.toFloat() * it).toFloat() },
+        "sine" to { 0.5f - 0.5f * Math.cos((Math.PI.toFloat() * it).toDouble()).toFloat() },
         "expo-in" to { if (it == 0f) 0f else Math.pow(2.0, 10.0 * (it - 1f).toDouble()).toFloat() },
         "expo-out" to { if (it == 1f) 1f else 1f - Math.pow(2.0, -10.0 * it.toDouble()).toFloat() },
         "back-out" to { 1f + 2.70158f * Math.pow((it - 1f).toDouble(), 3.0).toFloat() + 1.70158f * (it - 1f) * (it - 1f) },
@@ -115,7 +115,7 @@ object AnimTools {
     }
 
     fun timing(fps: Int, seconds: Double, style: String, hold: Int): JsonObject {
-        val total = (fps * seconds.coerceAtLeast(0.1f)).toInt().coerceAtLeast(1)
+        val total = (fps * seconds.coerceAtLeast(0.1)).toInt().coerceAtLeast(1)
         val holds = if (style == "on-twos") hold.coerceAtLeast(1) else 1
         return buildJsonObject {
             put("fps", fps)
